@@ -4,3 +4,4 @@ class TrackableObject:
         self.landmarks = [landmark]
 
         self.counted = False
+        self.up = False

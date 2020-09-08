@@ -1,9 +1,18 @@
 from Object import TrackableObject
 from imutils.video import VideoStream, FPS
 from Tracker import Tracker
+from pymongo import MongoClient
+
+import pymongo
+from bson.binary import Binary 
+import pickle
+import gridfs
+from PIL import Image
+
 import numpy as np
 import argparse
 import imutils
+import datetime
 import time
 import dlib 
 import cv2
@@ -49,10 +58,16 @@ else:
     capture = cv2.VideoCapture(0)
     isVideo = False 
 
-centroidTracker = Tracker(maxDisappeared = 40, maxDistance = 70)
+centroidTracker = Tracker(maxDisappeared = 20, maxDistance = 70)
 trackableObjects = {}
 trackerList = []
 
+# Setup MongoDB
+cluster = MongoClient("mongodb://PGA:111199@cluster0-shard-00-00.gjysk.mongodb.net:27017,cluster0-shard-00-01.gjysk.mongodb.net:27017,cluster0-shard-00-02.gjysk.mongodb.net:27017/<dbname>?ssl=true&replicaSet=atlas-8sqsyx-shard-0&authSource=admin&retryWrites=true&w=majority")
+db = cluster["test"]
+collection = db["test"]
+fs = gridfs.GridFS(db)
+_id = 0
 
 # Set dimension
 width = 550
@@ -112,6 +127,8 @@ while True:
         detections = detections[np.logical_not(np.logical_and(detections[:, 4] > (zone[1] + zone[3]) / height, detections[:, 6] > (zone[1] + zone[3]) / height))]
         detections = detections[np.logical_not(np.logical_and(detections[:, 3] > (zone[0] + zone[2]) / width, detections[:, 5] > (zone[0] + zone[2]) / width))]
 
+
+        # For each rectangle that satisfies the condition, assign a tracker 
         for i in np.arange(0, detections.shape[0]):
             boundingBox = detections[i, 3:7] * np.array([width, height, width, height])
             (startX, startY, endX, endY) = boundingBox.astype("int")
@@ -122,6 +139,7 @@ while True:
             trackerList.append(tracker)
 
     else:
+        # Update trackers
         for tracker in trackerList:
             tracker.update(RGB)
             position = tracker.get_position()
@@ -133,23 +151,25 @@ while True:
 
             rectList.append((startX, startY, endX, endY))
         
+    # Change skip time 
     if len(trackerList) < 3: 
         skip = args.skip * 2
     else:
         skip = args.skip
+
+    # Update objects
     objects = centroidTracker.update(rectList)
 
+
+    # Visualize results
     cv2.rectangle(frame, (zone[0], zone[1]), (zone[0] + zone[2], zone[1] + zone[3]), (0, 0, 255), 3)
-    for (i, (startX, startY, endX, endY)) in enumerate(rectList):
-        cv2.rectangle(frame, (startX, startY), (endX, endY), (0, 255, 0), 2)    
+    # for (i, (startX, startY, endX, endY)) in enumerate(rectList):
+    #     cv2.rectangle(frame, (startX, startY), (endX, endY), (0, 255, 0), 2)    
 
 
-
-    ########################################
-
+    # Check object conditions
     for (objectID, centroid) in objects.items():
-		# check to see if a trackable object exists for the current
-		# object ID
+        text = "ID {}".format(objectID)
         to = trackableObjects.get(objectID, None)
 
 		# if there is no existing trackable object, create one
@@ -161,56 +181,81 @@ while True:
         else:
             # print([objectID] + to.centroids)
             firstPos = to.landmarks[0]
-            up = (zone[1] - firstPos[1]) > (firstPos[3] - (zone[1] + zone[3]))
+            upState = firstPos[3] <= zone[1] + zone[3]
             posDiff = centroid - firstPos
             isVertical = 2 * abs(posDiff[5]) > abs(posDiff[4])
             isNear = args.place == "near"
             isUp = posDiff[3] < -zone[3] / 2 and centroid[3] < zone[1] + zone[3] / 2
-            isDown = posDiff[3] > zone[3] / 2 and centroid[3] > zone[1] + zone[3] / 2
-            isUp = isUp if isNear else isUp and not up
-            isDown = isDown if isNear else isDown and up
+            isDown = posDiff[3] > zone[3] / 2 and centroid[3] > zone[1] + zone[3]
+            isUp = isUp if isNear else isUp and not upState
+            isDown = isDown if isNear else isDown and upState
             isVertical = isVertical if args.arms == "y" else True
             to.landmarks.append(centroid)
 
-			# check to see if the object has been counted or not
-            if not to.counted:
-				# if the direction is negative (indicating the object
-				# is moving up) AND the centroid is above the center
-				# line, count the object
-                if isVertical:
 
+
+            copyCopyFrame = copy.copy(copyFrame)
+			# Check to see if the object has been counted or not
+            if not to.counted:
+                
+                cv2.rectangle(frame, (centroid[0], centroid[1]), (centroid[2], centroid[3]), (0, 255, 0), 2)
+                cv2.putText(frame, text, (centroid[0] - 10, centroid[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+                cv2.circle(frame, (centroid[0], centroid[1]), 4, (0, 255, 0), -1)   
+                if isVertical:
                     if isUp:
                         totalUp += 1
                         to.counted = True
-                        cv2.rectangle(copyFrame, (centroid[0], centroid[1]), (centroid[2], centroid[3]), (255, 0, 255), 2)
-                        cv2.imshow("Up", copyFrame)
+                        to.up = True
+                        
+                        copyCopyFrame = cv2.cvtColor(copyCopyFrame, cv2.COLOR_BGR2RGB)
+                        cv2.rectangle(copyCopyFrame, (centroid[0], centroid[1]), (centroid[2], centroid[3]), (255, 255, 255), 2)
+                        im = Image.fromarray(copyCopyFrame)
+                        im.save("/home/ubuntu/mongodb images/" + str(_id) + ".jpg")
+                        # start = time.time()
+                        # evidence = fs.put(open(r'evidence.jpg', 'rb'))
+
+                        # now = datetime.datetime.now()
+                        # collection.insert_one({"_id": _id, "time": now.strftime("%d/%m/%Y %H:%M:%S"), "direction": "upState", "evidence": evidence})
+                        _id = _id + 1
+                        
+                        # print(time.time()-start)
 
 
-				    # if the direction is positive (indicating the object
-				    # is moving down) AND the centroid is below the
-				    # center line, count the object
                     if isDown:
                         totalDown += 1
                         to.counted = True
-                        cv2.rectangle(copyFrame, (centroid[0], centroid[1]), (centroid[2], centroid[3]), (255, 0, 255), 2)
-                        cv2.imshow("Down", copyFrame)
+                        to.up = False
+                        
+                        copyCopyFrame = cv2.cvtColor(copyCopyFrame, cv2.COLOR_BGR2RGB)
+                        cv2.rectangle(copyCopyFrame, (centroid[0], centroid[1]), (centroid[2], centroid[3]), (255, 255, 255), 2)
+                        im = Image.fromarray(copyCopyFrame)
+                        im.save("/home/ubuntu/mongodb images/" + str(_id) + ".jpg")
+                        # start = time.time()
+                        # evidence = fs.put(open(r'evidence.jpg', 'rb'))
+
+                        # now = datetime.datetime.now()
+                        # collection.insert_one({"_id": _id, "time": now.strftime("%d/%m/%Y %H:%M:%S"), "direction": "down", "evidence": evidence})
+                        _id = _id + 1
+                        # print(time.time()-start)
 
                 else:
                     if posDiff[0] < -zone[2] / 2 and centroid[0] < zone[0]:
                         totalLeft += 1
                         to.counted = True
-                        cv2.rectangle(copyFrame, (centroid[0], centroid[1]), (centroid[2], centroid[3]), (255, 0, 255), 2)
-                        cv2.imshow("Left", copyFrame)
+                        cv2.rectangle(copyCopyFrame, (centroid[0], centroid[1]), (centroid[2], centroid[3]), (0, 255, 0), 2)
 
-		# store the trackable object in our dictionary
+            else:
+                if to.up:
+                    cv2.rectangle(frame, (centroid[0], centroid[1]), (centroid[2], centroid[3]), (0, 255, 255), 2)
+                    cv2.putText(frame, text, (centroid[0] - 10, centroid[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
+                    cv2.circle(frame, (centroid[0], centroid[1]), 4, (0, 255, 255), -1)
+                else:
+                    cv2.rectangle(frame, (centroid[0], centroid[1]), (centroid[2], centroid[3]), (255, 0, 0), 2)
+                    cv2.putText(frame, text, (centroid[0] - 10, centroid[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
+                    cv2.circle(frame, (centroid[0], centroid[1]), 4, (255, 0, 0), -1)
         trackableObjects[objectID] = to
 
-		# draw both the ID of the object and the centroid of the
-		# object on the output frame
-        text = "ID {}".format(objectID)
-        cv2.putText(frame, text, (centroid[0] - 10, centroid[1] - 10),
-			cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
-        cv2.circle(frame, (centroid[0], centroid[1]), 4, (0, 255, 0), -1)
+        
     
 	# construct a tuple of information we will be displaying on the
 	# frame
@@ -223,8 +268,7 @@ while True:
 	# loop over the info tuples and draw them on our frame
     for (i, (k, v)) in enumerate(info):
         text = "{}: {}".format(k, v)
-        cv2.putText(frame, text, (10, height - ((i * 20) + 20)),
-			cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
+        cv2.putText(frame, text, (10, height - ((i * 20) + 20)), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
 
     ########################################
 
@@ -236,7 +280,9 @@ while True:
 
 fps.stop()
 print(zone)
+print(totalUp, totalDown)
 print("[INFO] elapsed time: {:.2f}".format(fps.elapsed()))
 print("[INFO] approx. FPS: {:.2f}".format(fps.fps()))
 
 
+# python3 LinePassing.py --config ssd_inception_v2_coco_2018_01_28/graph.pbtxt --model ssd_inception_v2_coco_2018_01_28/frozen_inference_graph.pb --input /home/ubuntu/Desktop/pmh_face_15p.mp4 --place far --arms y --net tensorflow
