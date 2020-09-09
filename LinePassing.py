@@ -4,9 +4,6 @@ from Tracker import Tracker
 from pymongo import MongoClient
 
 import pymongo
-from bson.binary import Binary 
-import pickle
-import gridfs
 from PIL import Image
 
 import numpy as np
@@ -66,7 +63,6 @@ trackerList = []
 cluster = MongoClient("mongodb://PGA:111199@cluster0-shard-00-00.gjysk.mongodb.net:27017,cluster0-shard-00-01.gjysk.mongodb.net:27017,cluster0-shard-00-02.gjysk.mongodb.net:27017/<dbname>?ssl=true&replicaSet=atlas-8sqsyx-shard-0&authSource=admin&retryWrites=true&w=majority")
 db = cluster["test"]
 collection = db["test"]
-fs = gridfs.GridFS(db)
 _id = 0
 
 # Set dimension
@@ -211,14 +207,10 @@ while True:
                         cv2.rectangle(copyCopyFrame, (centroid[0], centroid[1]), (centroid[2], centroid[3]), (255, 255, 255), 2)
                         im = Image.fromarray(copyCopyFrame)
                         im.save("/home/ubuntu/mongodb images/" + str(_id) + ".jpg")
-                        # start = time.time()
-                        # evidence = fs.put(open(r'evidence.jpg', 'rb'))
-
-                        # now = datetime.datetime.now()
-                        # collection.insert_one({"_id": _id, "time": now.strftime("%d/%m/%Y %H:%M:%S"), "direction": "upState", "evidence": evidence})
+                
+                        now = datetime.datetime.now()
+                        collection.insert_one({"_id": _id, "time": now.strftime("%d/%m/%Y %H:%M:%S"), "direction": "up", "evidence": ""})
                         _id = _id + 1
-                        
-                        # print(time.time()-start)
 
 
                     if isDown:
@@ -230,13 +222,10 @@ while True:
                         cv2.rectangle(copyCopyFrame, (centroid[0], centroid[1]), (centroid[2], centroid[3]), (255, 255, 255), 2)
                         im = Image.fromarray(copyCopyFrame)
                         im.save("/home/ubuntu/mongodb images/" + str(_id) + ".jpg")
-                        # start = time.time()
-                        # evidence = fs.put(open(r'evidence.jpg', 'rb'))
 
-                        # now = datetime.datetime.now()
-                        # collection.insert_one({"_id": _id, "time": now.strftime("%d/%m/%Y %H:%M:%S"), "direction": "down", "evidence": evidence})
+                        now = datetime.datetime.now()
+                        collection.insert_one({"_id": _id, "time": now.strftime("%d/%m/%Y %H:%M:%S"), "direction": "down", "evidence": ""})
                         _id = _id + 1
-                        # print(time.time()-start)
 
                 else:
                     if posDiff[0] < -zone[2] / 2 and centroid[0] < zone[0]:
