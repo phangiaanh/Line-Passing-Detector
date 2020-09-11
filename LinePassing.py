@@ -11,14 +11,15 @@ import argparse
 import imutils
 import datetime
 import time
-import dlib 
+import dlib
 import cv2
 import copy
+import math
 
 
 # Parser Initializing
 parser = argparse.ArgumentParser()
-parser.add_argument("--config", required = True, 
+parser.add_argument("--config", required = True,
     help = "Path to [caffe tensorflow] config file")
 parser.add_argument("--model", required = True,
     help = "Path to [caffe tensorflow] model file")
@@ -30,7 +31,6 @@ parser.add_argument("--thr", type = float, default = 0.3,
     help = "Threshold")
 parser.add_argument("--skip", type = int, default = 10,
     help = "Number of frames skipped")
-parser.add_argument("--place", default = "far")
 parser.add_argument("--arms", default = "y")
 args = parser.parse_args()
 
@@ -53,7 +53,7 @@ if args.input:
 else:
     print("[INFO] Starting Video Stream")
     capture = cv2.VideoCapture(0)
-    isVideo = False 
+    isVideo = False
 
 centroidTracker = Tracker(maxDisappeared = 20, maxDistance = 70)
 trackableObjects = {}
@@ -68,15 +68,57 @@ _id = 0
 # Set dimension
 width = 550
 skip = args.skip
+coordinate = []
+
+def click(event, x, y, flags, param):
+    global coordinate
+    if event == cv2.EVENT_LBUTTONDOWN:
+        coordinate.append((x, y))
+
 
 # Set zone
 _, firstFrame = capture.read()
 height = int(width * firstFrame.shape[0] / firstFrame.shape[1])
 firstFrame = cv2.resize(firstFrame, (width, height))
 
-zone = cv2.selectROI("Zone", firstFrame, fromCenter = False, showCrosshair = False)
-cv2.destroyWindow("Zone")
+cv2.imshow("Zone", firstFrame)
+cv2.setMouseCallback("Zone", click)
 
+lock = False
+while True:
+    if len(coordinate) > 0 and not lock:
+        i = len(coordinate)
+        cv2.circle(firstFrame, (coordinate[i - 1][0], coordinate[i - 1][1]), 4, (255, 255, 255), -1)
+        if i % 2 == 0:
+            cv2.line(firstFrame, (coordinate[i - 1][0], coordinate[i - 1][1]), (coordinate[i - 2][0], coordinate[i - 2][1]), (255, 255, 255), 1)
+        if i == 4:
+            cv2.setMouseCallback("Zone", lambda *args: None)
+            # lock = True
+
+    cv2.imshow("Zone", firstFrame)
+    if cv2.waitKey(1) == ord('d'):
+        cv2.destroyWindow("Zone")
+        break
+
+print(coordinate)
+coordinate = np.array(coordinate)
+
+
+# Create zone depending on direction
+
+alpha = (coordinate[1, 1] - coordinate[0, 1]) / (coordinate[1, 0] - coordinate[0, 0])
+if abs(coordinate[0, 0] - coordinate[1, 0]) > abs(coordinate[0, 1] - coordinate[1, 1]):
+    span = int(20 * math.sqrt((coordinate[0, 0] - coordinate[1, 0])**2 + (coordinate[0, 1] - coordinate[1, 1])**2) / abs(coordinate[0, 0] - coordinate[1, 0]))
+    if coordinate[0, 0] < coordinate[1, 0]:
+        zone = np.array([[-alpha, 1, -coordinate[0, 1] + span + alpha * coordinate[0, 0]], [-alpha, 1, -coordinate[0, 1] - span + alpha * coordinate[0, 0]], [1, 0, -coordinate[0, 0]], [1, 0, -coordinate[1, 0]]])
+    else:
+        zone = np.array([[-alpha, 1, -coordinate[0, 1] + span + alpha * coordinate[0, 0]], [-alpha, 1, -coordinate[0, 1] - span + alpha * coordinate[0, 0]], [1, 0, -coordinate[1, 0]], [1, 0, -coordinate[0, 0]]])
+else:
+    span = int(20 * math.sqrt((coordinate[0, 0] - coordinate[1, 0])**2 + (coordinate[0, 1] - coordinate[1, 1])**2) / abs(coordinate[0, 1] - coordinate[1, 1]))
+    if coordinate[0, 1] < coordinate[1, 1]:
+        zone = np.array([[0, 1, -coordinate[0, 1]], [0, 1, -coordinate[1, 1]], [-alpha, 1, -coordinate[0, 1] + alpha * (coordinate[0, 0] - span)], [-alpha, 1, -coordinate[0, 1] + alpha * (coordinate[0, 0] + span)]])
+    else:
+        zone = np.array([[0, 1, -coordinate[1, 1]], [0, 1, -coordinate[0, 1]], [-alpha, 1, -coordinate[0, 1] + alpha * (coordinate[0, 0] - span)], [-alpha, 1, -coordinate[0, 1] + alpha * (coordinate[0, 0] + span)]])
 
 # Some output parameters
 totalFrames = 0
@@ -110,21 +152,22 @@ while True:
         blob = cv2.dnn.blobFromImage(frame, size = (width, height))
         net.setInput(blob)
         detections = net.forward()
-        
+
 
         # Filter detections based on: Confidence and Class
         detections = np.array(detections[0, 0])
         detections = detections[detections[:, 2] > args.thr]
         detections = detections[detections[:, 1] == personID]
 
+
         # Filter detections based on: Zone
-        detections = detections[np.logical_not(np.logical_and(detections[:, 4] < zone[1] / height, detections[:, 6] < zone[1] / height))]
-        detections = detections[np.logical_not(np.logical_and(detections[:, 3] < zone[0] / width, detections[:, 5] < zone[0] / width))]
-        detections = detections[np.logical_not(np.logical_and(detections[:, 4] > (zone[1] + zone[3]) / height, detections[:, 6] > (zone[1] + zone[3]) / height))]
-        detections = detections[np.logical_not(np.logical_and(detections[:, 3] > (zone[0] + zone[2]) / width, detections[:, 5] > (zone[0] + zone[2]) / width))]
+        detections = detections[np.logical_not(np.logical_and(zone[0, 0] * detections[:, 3] * width + zone[0, 1] * detections[:, 6] * height + zone[0, 2] < 0, zone[0, 0] * detections[:, 5] * width + zone[0, 1] * detections[:, 6] * height + zone[0, 2] < 0))]
+        detections = detections[np.logical_not(np.logical_and(zone[1, 0] * detections[:, 3] * width + zone[1, 1] * detections[:, 4] * height + zone[1, 2] > 0, zone[1, 0] * detections[:, 5] * width + zone[1, 1] * detections[:, 4] * height + zone[1, 2] > 0))]
+        detections = detections[np.logical_not(np.logical_and(zone[2, 0] * detections[:, 5] * width + zone[2, 1] * detections[:, 4] * height + zone[2, 2] < 0, zone[2, 0] * detections[:, 5] * width + zone[2, 1] * detections[:, 6] * height + zone[2, 2] < 0))]
+        detections = detections[np.logical_not(np.logical_and(zone[3, 0] * detections[:, 3] * width + zone[3, 1] * detections[:, 4] * height + zone[3, 2] > 0, zone[3, 0] * detections[:, 3] * width + zone[3, 1] * detections[:, 6] * height + zone[3, 2] > 0))]
 
 
-        # For each rectangle that satisfies the condition, assign a tracker 
+        # For each rectangle that satisfies the condition, assign a tracker
         for i in np.arange(0, detections.shape[0]):
             boundingBox = detections[i, 3:7] * np.array([width, height, width, height])
             (startX, startY, endX, endY) = boundingBox.astype("int")
@@ -146,9 +189,9 @@ while True:
             endY = int(position.bottom())
 
             rectList.append((startX, startY, endX, endY))
-        
-    # Change skip time 
-    if len(trackerList) < 3: 
+
+    # Change skip time
+    if len(trackerList) < 3:
         skip = args.skip * 2
     else:
         skip = args.skip
@@ -158,9 +201,13 @@ while True:
 
 
     # Visualize results
-    cv2.rectangle(frame, (zone[0], zone[1]), (zone[0] + zone[2], zone[1] + zone[3]), (0, 0, 255), 3)
-    # for (i, (startX, startY, endX, endY)) in enumerate(rectList):
-    #     cv2.rectangle(frame, (startX, startY), (endX, endY), (0, 255, 0), 2)    
+    cv2.circle(frame, (coordinate[0, 0], coordinate[0, 1]), 4, (255, 255, 255), -1)
+    cv2.circle(frame, (coordinate[1, 0], coordinate[1, 1]), 4, (255, 255, 255), -1)
+    cv2.line(frame, (coordinate[0, 0], coordinate[0, 1]), (coordinate[1, 0], coordinate[1, 1]), (255, 255, 255), 1)
+    # cv2.line(frame, (coordinate[0, 0], coordinate[0, 1] + span), (coordinate[1, 0], coordinate[1, 1] + span), (255, 255, 255), 2)
+    # cv2.line(frame, (coordinate[0, 0], coordinate[0, 1] - span), (coordinate[1, 0], coordinate[1, 1] - span), (255, 255, 255), 2)
+    cv2.line(frame, (coordinate[0, 0] + span, coordinate[0, 1]), (coordinate[1, 0] + span, coordinate[1, 1]), (255, 255, 255), 2)
+    cv2.line(frame, (coordinate[0, 0] - span, coordinate[0, 1]), (coordinate[1, 0] - span, coordinate[1, 1]), (255, 255, 255), 2)
 
 
     # Check object conditions
@@ -168,84 +215,85 @@ while True:
         text = "ID {}".format(objectID)
         to = trackableObjects.get(objectID, None)
 
-		# if there is no existing trackable object, create one
+		# Create a new one if there is None
         if to is None:
             to = TrackableObject(objectID, centroid)
 
-		# otherwise, there is a trackable object so we can utilize it
-		# to determine direction
+		# Checking if the conditions are enough to determine passing-line object
         else:
-            # print([objectID] + to.centroids)
-            firstPos = to.landmarks[0]
-            upState = firstPos[3] <= zone[1] + zone[3]
-            posDiff = centroid - firstPos
-            isVertical = 2 * abs(posDiff[5]) > abs(posDiff[4])
-            isNear = args.place == "near"
-            isUp = posDiff[3] < -zone[3] / 2 and centroid[3] < zone[1] + zone[3] / 2
-            isDown = posDiff[3] > zone[3] / 2 and centroid[3] > zone[1] + zone[3]
-            isUp = isUp if isNear else isUp and not upState
-            isDown = isDown if isNear else isDown and upState
-            isVertical = isVertical if args.arms == "y" else True
-            to.landmarks.append(centroid)
-
+            # firstPos = to.landmarks[0]
+            # upState = (zone[1, 0] * firstPos[0] + zone[1, 1] * firstPos[3] + zone[1, 2] < 0) and (zone[1, 0] * firstPos[2] + zone[1, 1] * firstPos[3] + zone[1, 2] < 0)
+            # posDiff = centroid - firstPos
+            # isVertical = 2 * abs(posDiff[5]) > abs(posDiff[4])
+            # isUp = posDiff[3] < -span and ((zone[0, 0] * centroid[0] + zone[0, 1] * centroid[3] + zone[0, 2] - span < 0) or (zone[0, 0] * centroid[2] + zone[0, 1] * centroid[3] + zone[0, 2] - span < 0))
+            # isDown = posDiff[3] > span and ((zone[1, 0] * centroid[0] + zone[1, 1] * centroid[3] + zone[1, 2] > 0) or (zone[1, 0] * centroid[2] + zone[1, 1] * centroid[3] + zone[1, 2] > 0))
+            # isUp = isUp and not upState
+            # isDown = isDown and upState
+            # # isVertical = isVertical if args.arms == "y" else True
+            # to.landmarks.append(centroid)
 
 
             copyCopyFrame = copy.copy(copyFrame)
 			# Check to see if the object has been counted or not
             if not to.counted:
-                
                 cv2.rectangle(frame, (centroid[0], centroid[1]), (centroid[2], centroid[3]), (0, 255, 0), 2)
                 cv2.putText(frame, text, (centroid[0] - 10, centroid[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
-                cv2.circle(frame, (centroid[0], centroid[1]), 4, (0, 255, 0), -1)   
-                if isVertical:
-                    if isUp:
-                        totalUp += 1
-                        to.counted = True
-                        to.up = True
-                        
-                        copyCopyFrame = cv2.cvtColor(copyCopyFrame, cv2.COLOR_BGR2RGB)
-                        cv2.rectangle(copyCopyFrame, (centroid[0], centroid[1]), (centroid[2], centroid[3]), (255, 255, 255), 2)
-                        im = Image.fromarray(copyCopyFrame)
-                        im.save("/home/ubuntu/mongodb images/" + str(_id) + ".jpg")
-                
-                        now = datetime.datetime.now()
-                        collection.insert_one({"_id": _id, "time": now.strftime("%d/%m/%Y %H:%M:%S"), "direction": "up", "evidence": ""})
-                        _id = _id + 1
+                cv2.circle(frame, (centroid[0], centroid[1]), 4, (0, 255, 0), -1)
+            #     if isVertical:
+            #         if isUp:
+            #             totalUp += 1
+            #             to.counted = True
+            #             to.up = True
+
+            #             copyCopyFrame = cv2.cvtColor(copyCopyFrame, cv2.COLOR_BGR2RGB)
+            #             cv2.rectangle(copyCopyFrame, (centroid[0], centroid[1]), (centroid[2], centroid[3]), (255, 255, 255), 2)
+            #             cv2.circle(copyCopyFrame, (coordinate[0, 0], coordinate[0, 1]), 4, (255, 255, 255), -1)
+            #             cv2.circle(copyCopyFrame, (coordinate[1, 0], coordinate[1, 1]), 4, (255, 255, 255), -1)
+            #             cv2.line(copyCopyFrame, (coordinate[0, 0], coordinate[0, 1]), (coordinate[1, 0], coordinate[1, 1]), (255, 255, 255), 1)
+            #             im = Image.fromarray(copyCopyFrame)
+            #             im.save("/home/ubuntu/mongodb images/" + str(_id) + ".jpg")
+
+            # #             now = datetime.datetime.now()
+            # #             collection.insert_one({"_id": _id, "time": now.strftime("%d/%m/%Y %H:%M:%S"), "direction": "up", "evidence": ""})
+            #             _id = _id + 1
 
 
-                    if isDown:
-                        totalDown += 1
-                        to.counted = True
-                        to.up = False
-                        
-                        copyCopyFrame = cv2.cvtColor(copyCopyFrame, cv2.COLOR_BGR2RGB)
-                        cv2.rectangle(copyCopyFrame, (centroid[0], centroid[1]), (centroid[2], centroid[3]), (255, 255, 255), 2)
-                        im = Image.fromarray(copyCopyFrame)
-                        im.save("/home/ubuntu/mongodb images/" + str(_id) + ".jpg")
+            #         if isDown:
+            #             totalDown += 1
+            #             to.counted = True
+            #             to.up = False
 
-                        now = datetime.datetime.now()
-                        collection.insert_one({"_id": _id, "time": now.strftime("%d/%m/%Y %H:%M:%S"), "direction": "down", "evidence": ""})
-                        _id = _id + 1
+            #             copyCopyFrame = cv2.cvtColor(copyCopyFrame, cv2.COLOR_BGR2RGB)
+            #             cv2.rectangle(copyCopyFrame, (centroid[0], centroid[1]), (centroid[2], centroid[3]), (255, 255, 255), 2)
+            #             cv2.circle(copyCopyFrame, (coordinate[0, 0], coordinate[0, 1]), 4, (255, 255, 255), -1)
+            #             cv2.circle(copyCopyFrame, (coordinate[1, 0], coordinate[1, 1]), 4, (255, 255, 255), -1)
+            #             cv2.line(copyCopyFrame, (coordinate[0, 0], coordinate[0, 1]), (coordinate[1, 0], coordinate[1, 1]), (255, 255, 255), 1)
+            #             im = Image.fromarray(copyCopyFrame)
+            #             im.save("/home/ubuntu/mongodb images/" + str(_id) + ".jpg")
 
-                else:
-                    if posDiff[0] < -zone[2] / 2 and centroid[0] < zone[0]:
-                        totalLeft += 1
-                        to.counted = True
-                        cv2.rectangle(copyCopyFrame, (centroid[0], centroid[1]), (centroid[2], centroid[3]), (0, 255, 0), 2)
+            # #             now = datetime.datetime.now()
+            # #             collection.insert_one({"_id": _id, "time": now.strftime("%d/%m/%Y %H:%M:%S"), "direction": "down", "evidence": ""})
+            #             _id = _id + 1
 
-            else:
-                if to.up:
-                    cv2.rectangle(frame, (centroid[0], centroid[1]), (centroid[2], centroid[3]), (0, 255, 255), 2)
-                    cv2.putText(frame, text, (centroid[0] - 10, centroid[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
-                    cv2.circle(frame, (centroid[0], centroid[1]), 4, (0, 255, 255), -1)
-                else:
-                    cv2.rectangle(frame, (centroid[0], centroid[1]), (centroid[2], centroid[3]), (255, 0, 0), 2)
-                    cv2.putText(frame, text, (centroid[0] - 10, centroid[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
-                    cv2.circle(frame, (centroid[0], centroid[1]), 4, (255, 0, 0), -1)
+            # #     else:
+            # #         if posDiff[0] < -zone[2] / 2 and centroid[0] < zone[0]:
+            # #             totalLeft += 1
+            # #             to.counted = True
+            # #             cv2.rectangle(copyCopyFrame, (centroid[0], centroid[1]), (centroid[2], centroid[3]), (0, 255, 0), 2)
+
+            # else:
+            #     if to.up:
+            #         cv2.rectangle(frame, (centroid[0], centroid[1]), (centroid[2], centroid[3]), (0, 0, 255), 2)
+            #         cv2.putText(frame, text, (centroid[0] - 10, centroid[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
+            #         cv2.circle(frame, (centroid[0], centroid[1]), 4, (0, 0, 255), -1)
+            #     else:
+            #         cv2.rectangle(frame, (centroid[0], centroid[1]), (centroid[2], centroid[3]), (255, 0, 0), 2)
+            #         cv2.putText(frame, text, (centroid[0] - 10, centroid[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
+            #         cv2.circle(frame, (centroid[0], centroid[1]), 4, (255, 0, 0), -1)
         trackableObjects[objectID] = to
 
-        
-    
+
+
 	# construct a tuple of information we will be displaying on the
 	# frame
     info = [
@@ -268,7 +316,6 @@ while True:
         break
 
 fps.stop()
-print(zone)
 print(totalUp, totalDown)
 print("[INFO] elapsed time: {:.2f}".format(fps.elapsed()))
 print("[INFO] approx. FPS: {:.2f}".format(fps.fps()))
