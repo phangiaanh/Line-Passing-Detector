@@ -105,21 +105,30 @@ coordinate = np.array(coordinate)
 
 
 # Create zone depending on direction
+zone = np.zeros((2, 4, 3), dtype = float)
+alpha = np.array([0, 0], dtype = float)
+span = np.array([0, 0], dtype = float)
+zoneState = []
 
-alpha = (coordinate[1, 1] - coordinate[0, 1]) / (coordinate[1, 0] - coordinate[0, 0])
-if abs(coordinate[0, 0] - coordinate[1, 0]) > abs(coordinate[0, 1] - coordinate[1, 1]):
-    span = int(20 * math.sqrt((coordinate[0, 0] - coordinate[1, 0])**2 + (coordinate[0, 1] - coordinate[1, 1])**2) / abs(coordinate[0, 0] - coordinate[1, 0]))
-    if coordinate[0, 0] < coordinate[1, 0]:
-        zone = np.array([[-alpha, 1, -coordinate[0, 1] + span + alpha * coordinate[0, 0]], [-alpha, 1, -coordinate[0, 1] - span + alpha * coordinate[0, 0]], [1, 0, -coordinate[0, 0]], [1, 0, -coordinate[1, 0]]])
+for i in range(0, int(len(coordinate) / 2)):
+    print(i)
+    alpha[i] = (coordinate[2 * i, 1] - coordinate[2 * i + 1, 1]) / (coordinate[2 * i, 0] - coordinate[2 * i + 1, 0])
+    if abs(coordinate[2 * i, 0] - coordinate[2 * i + 1, 0]) > 2 * abs(coordinate[2 * i, 1] - coordinate[2 * i + 1, 1]):
+        span[i] = int(20 * math.sqrt((coordinate[2 * i, 0] - coordinate[2 * i + 1, 0])**2 + (coordinate[2 * i, 1] - coordinate[2 * i + 1, 1])**2) / abs(coordinate[2 * i, 0] - coordinate[2 * i + 1, 0]))
+        zoneState.append(True)
+        if coordinate[2 * i, 0] < coordinate[2 * i + 1, 0]:
+            zone[i] = np.array([[-alpha[i], 1, -coordinate[2 * i, 1] + span[i] + alpha[i] * coordinate[2 * i, 0]], [-alpha[i], 1, -coordinate[2 * i, 1] - span[i] + alpha[i] * coordinate[2 * i, 0]], [1, 0, -coordinate[2 * i, 0]], [1, 0, -coordinate[2 * i + 1, 0]]])
+        else:
+            zone[i] = np.array([[-alpha[i], 1, -coordinate[2 * i, 1] + span[i] + alpha[i] * coordinate[2 * i, 0]], [-alpha[i], 1, -coordinate[2 * i, 1] - span[i] + alpha[i] * coordinate[2 * i, 0]], [1, 0, -coordinate[2 * i + 1, 0]], [1, 0, -coordinate[2 * i, 0]]])
     else:
-        zone = np.array([[-alpha, 1, -coordinate[0, 1] + span + alpha * coordinate[0, 0]], [-alpha, 1, -coordinate[0, 1] - span + alpha * coordinate[0, 0]], [1, 0, -coordinate[1, 0]], [1, 0, -coordinate[0, 0]]])
-else:
-    span = int(20 * math.sqrt((coordinate[0, 0] - coordinate[1, 0])**2 + (coordinate[0, 1] - coordinate[1, 1])**2) / abs(coordinate[0, 1] - coordinate[1, 1]))
-    if coordinate[0, 1] < coordinate[1, 1]:
-        zone = np.array([[0, 1, -coordinate[0, 1]], [0, 1, -coordinate[1, 1]], [-alpha, 1, -coordinate[0, 1] + alpha * (coordinate[0, 0] - span)], [-alpha, 1, -coordinate[0, 1] + alpha * (coordinate[0, 0] + span)]])
-    else:
-        zone = np.array([[0, 1, -coordinate[1, 1]], [0, 1, -coordinate[0, 1]], [-alpha, 1, -coordinate[0, 1] + alpha * (coordinate[0, 0] - span)], [-alpha, 1, -coordinate[0, 1] + alpha * (coordinate[0, 0] + span)]])
+        span[i] = int(20 * math.sqrt((coordinate[2 * i, 0] - coordinate[2 * i + 1, 0])**2 + (coordinate[2 * i, 1] - coordinate[2 * i + 1, 1])**2) / abs(coordinate[2 * i, 1] - coordinate[2 * i + 1, 1]))
+        zoneState.append(False)
+        if coordinate[2 * i, 1] < coordinate[2 * i + 1, 1]:
+            zone[i] = np.array([[0, 1, -coordinate[2 * i, 1]], [0, 1, -coordinate[2 * i + 1, 1]], [-alpha[i], 1, -coordinate[2 * i, 1] + alpha[i] * (coordinate[2 * i, 0] - span[i])], [-alpha[i], 1, -coordinate[2 * i, 1] + alpha[i] * (coordinate[2 * i, 0] + span[i])]])
+        else:
+            zone[i] = np.array([[0, 1, -coordinate[2 * i + 1, 1]], [0, 1, -coordinate[2 * i, 1]], [-alpha[i], 1, -coordinate[2 * i, 1] + alpha[i] * (coordinate[2 * i, 0] - span[i])], [-alpha[i], 1, -coordinate[2 * i, 1] + alpha[i] * (coordinate[2 * i, 0] + span[i])]])
 
+print(zoneState)
 # Some output parameters
 totalFrames = 0
 totalDown = 0
@@ -129,6 +138,7 @@ fps = FPS().start()
 
 
 while True:
+    start = time.time()
     # Get frame
     _, frame = capture.read()
 
@@ -161,10 +171,23 @@ while True:
 
 
         # Filter detections based on: Zone
-        detections = detections[np.logical_not(np.logical_and(zone[0, 0] * detections[:, 3] * width + zone[0, 1] * detections[:, 6] * height + zone[0, 2] < 0, zone[0, 0] * detections[:, 5] * width + zone[0, 1] * detections[:, 6] * height + zone[0, 2] < 0))]
-        detections = detections[np.logical_not(np.logical_and(zone[1, 0] * detections[:, 3] * width + zone[1, 1] * detections[:, 4] * height + zone[1, 2] > 0, zone[1, 0] * detections[:, 5] * width + zone[1, 1] * detections[:, 4] * height + zone[1, 2] > 0))]
-        detections = detections[np.logical_not(np.logical_and(zone[2, 0] * detections[:, 5] * width + zone[2, 1] * detections[:, 4] * height + zone[2, 2] < 0, zone[2, 0] * detections[:, 5] * width + zone[2, 1] * detections[:, 6] * height + zone[2, 2] < 0))]
-        detections = detections[np.logical_not(np.logical_and(zone[3, 0] * detections[:, 3] * width + zone[3, 1] * detections[:, 4] * height + zone[3, 2] > 0, zone[3, 0] * detections[:, 3] * width + zone[3, 1] * detections[:, 6] * height + zone[3, 2] > 0))]
+        zoneCon = np.zeros((len(detections), 1), dtype = bool).flatten()
+        for i in range(0, len(zoneState)):
+            uExCon = np.logical_and(zone[i, 0, 0] * detections[:, 3] * width + zone[i, 0, 1] * detections[:, 6] * height + zone[i, 0, 2] < 0, zone[i, 0, 0] * detections[:, 5] * width + zone[i, 0, 1] * detections[:, 6] * height + zone[i, 0, 2] < 0)
+            dExCon = np.logical_and(zone[i, 1, 0] * detections[:, 3] * width + zone[i, 1, 1] * detections[:, 4] * height + zone[i, 1, 2] > 0, zone[i, 1, 0] * detections[:, 5] * width + zone[i, 1, 1] * detections[:, 4] * height + zone[i, 1, 2] > 0)
+            lExCon = np.logical_and(zone[i, 2, 0] * detections[:, 5] * width + zone[i, 2, 1] * detections[:, 4] * height + zone[i, 2, 2] < 0, zone[i, 2, 0] * detections[:, 5] * width + zone[i, 2, 1] * detections[:, 6] * height + zone[i, 2, 2] < 0)
+            rExCon = np.logical_and(zone[i, 3, 0] * detections[:, 3] * width + zone[i, 3, 1] * detections[:, 4] * height + zone[i, 3, 2] > 0, zone[i, 3, 0] * detections[:, 3] * width + zone[i, 3, 1] * detections[:, 6] * height + zone[i, 3, 2] > 0)
+            if zoneState[i]:
+                minCoor = min(coordinate[2 * i, 1], coordinate[2 * i + 1, 1])
+                maxCoor = max(coordinate[2 * i, 1], coordinate[2 * i + 1, 1])
+                limitCon = np.logical_or(detections[:, 6] * height < minCoor - span[i], detections[:, 4] * height > maxCoor + span[i])
+            else:
+                minCoor = min(coordinate[2 * i, 0], coordinate[2 * i + 1, 0])
+                maxCoor = max(coordinate[2 * i, 0], coordinate[2 * i + 1, 0])
+                limitCon = np.logical_or(detections[:, 5] * width < minCoor - span[i], detections[:, 3] * width > maxCoor + span[i])
+            InCon = np.logical_not(np.logical_or.reduce([uExCon, dExCon, lExCon, rExCon, limitCon]))
+            zoneCon = np.logical_or(zoneCon, InCon)
+        detections = detections[zoneCon]            
 
 
         # For each rectangle that satisfies the condition, assign a tracker
@@ -201,13 +224,16 @@ while True:
 
 
     # Visualize results
-    cv2.circle(frame, (coordinate[0, 0], coordinate[0, 1]), 4, (255, 255, 255), -1)
-    cv2.circle(frame, (coordinate[1, 0], coordinate[1, 1]), 4, (255, 255, 255), -1)
-    cv2.line(frame, (coordinate[0, 0], coordinate[0, 1]), (coordinate[1, 0], coordinate[1, 1]), (255, 255, 255), 1)
-    # cv2.line(frame, (coordinate[0, 0], coordinate[0, 1] + span), (coordinate[1, 0], coordinate[1, 1] + span), (255, 255, 255), 2)
-    # cv2.line(frame, (coordinate[0, 0], coordinate[0, 1] - span), (coordinate[1, 0], coordinate[1, 1] - span), (255, 255, 255), 2)
-    cv2.line(frame, (coordinate[0, 0] + span, coordinate[0, 1]), (coordinate[1, 0] + span, coordinate[1, 1]), (255, 255, 255), 2)
-    cv2.line(frame, (coordinate[0, 0] - span, coordinate[0, 1]), (coordinate[1, 0] - span, coordinate[1, 1]), (255, 255, 255), 2)
+    for i in range(0, len(zoneState)):
+        cv2.circle(frame, (coordinate[2 * i, 0], coordinate[2 * i, 1]), 4, (255, 255, 255), -1)
+        cv2.circle(frame, (coordinate[2 * i + 1, 0], coordinate[2 * i + 1, 1]), 4, (255, 255, 255), -1)
+        cv2.line(frame, (coordinate[2 * i, 0], coordinate[2 * i, 1]), (coordinate[2 * i + 1, 0], coordinate[2 * i + 1, 1]), (255, 255, 255), 1)
+        if zoneState[i]:
+            cv2.line(frame, (coordinate[2 * i, 0], coordinate[2 * i, 1] + int(span[i])), (coordinate[2 * i + 1, 0], coordinate[2 * i + 1, 1] + int(span[i])), (255, 255, 255), 2)
+            cv2.line(frame, (coordinate[2 * i, 0], coordinate[2 * i, 1] - int(span[i])), (coordinate[2 * i + 1, 0], coordinate[2 * i + 1, 1] - int(span[i])), (255, 255, 255), 2)
+        else:
+            cv2.line(frame, (coordinate[2 * i, 0] + int(span[i]), coordinate[2 * i, 1]), (coordinate[2 * i + 1, 0] + int(span[i]), coordinate[2 * i + 1, 1]), (255, 255, 255), 2)
+            cv2.line(frame, (coordinate[2 * i, 0] - int(span[i]), coordinate[2 * i, 1]), (coordinate[2 * i + 1, 0] - int(span[i]), coordinate[2 * i + 1, 1]), (255, 255, 255), 2)
 
 
     # Check object conditions
@@ -221,7 +247,7 @@ while True:
 
 		# Checking if the conditions are enough to determine passing-line object
         else:
-            # firstPos = to.landmarks[0]
+            firstPos = to.landmarks[0]
             # upState = (zone[1, 0] * firstPos[0] + zone[1, 1] * firstPos[3] + zone[1, 2] < 0) and (zone[1, 0] * firstPos[2] + zone[1, 1] * firstPos[3] + zone[1, 2] < 0)
             # posDiff = centroid - firstPos
             # isVertical = 2 * abs(posDiff[5]) > abs(posDiff[4])
@@ -312,6 +338,7 @@ while True:
     totalFrames += 1
     fps.update()
     cv2.imshow("frame", frame)
+    print(time.time()-start)
     if cv2.waitKey(1) == ord('q'):
         break
 
