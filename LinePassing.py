@@ -100,7 +100,6 @@ while True:
         cv2.destroyWindow("Zone")
         break
 
-print(coordinate)
 coordinate = np.array(coordinate)
 
 
@@ -111,7 +110,6 @@ span = np.array([0, 0], dtype = float)
 zoneState = []
 
 for i in range(0, int(len(coordinate) / 2)):
-    print(i)
     alpha[i] = (coordinate[2 * i, 1] - coordinate[2 * i + 1, 1]) / (coordinate[2 * i, 0] - coordinate[2 * i + 1, 0])
     if abs(coordinate[2 * i, 0] - coordinate[2 * i + 1, 0]) > 2 * abs(coordinate[2 * i, 1] - coordinate[2 * i + 1, 1]):
         span[i] = int(20 * math.sqrt((coordinate[2 * i, 0] - coordinate[2 * i + 1, 0])**2 + (coordinate[2 * i, 1] - coordinate[2 * i + 1, 1])**2) / abs(coordinate[2 * i, 0] - coordinate[2 * i + 1, 0]))
@@ -124,11 +122,10 @@ for i in range(0, int(len(coordinate) / 2)):
         span[i] = int(20 * math.sqrt((coordinate[2 * i, 0] - coordinate[2 * i + 1, 0])**2 + (coordinate[2 * i, 1] - coordinate[2 * i + 1, 1])**2) / abs(coordinate[2 * i, 1] - coordinate[2 * i + 1, 1]))
         zoneState.append(False)
         if coordinate[2 * i, 1] < coordinate[2 * i + 1, 1]:
-            zone[i] = np.array([[0, 1, -coordinate[2 * i, 1]], [0, 1, -coordinate[2 * i + 1, 1]], [-alpha[i], 1, -coordinate[2 * i, 1] + alpha[i] * (coordinate[2 * i, 0] - span[i])], [-alpha[i], 1, -coordinate[2 * i, 1] + alpha[i] * (coordinate[2 * i, 0] + span[i])]])
+            zone[i] = np.array([[0, 1, -coordinate[2 * i, 1]], [0, 1, -coordinate[2 * i + 1, 1]], [alpha[i], -1, coordinate[2 * i, 1] - alpha[i] * (coordinate[2 * i, 0] - span[i])] / alpha[i], [alpha[i], -1, coordinate[2 * i, 1] - alpha[i] * (coordinate[2 * i, 0] + span[i])] / alpha[i]])
         else:
-            zone[i] = np.array([[0, 1, -coordinate[2 * i + 1, 1]], [0, 1, -coordinate[2 * i, 1]], [-alpha[i], 1, -coordinate[2 * i, 1] + alpha[i] * (coordinate[2 * i, 0] - span[i])], [-alpha[i], 1, -coordinate[2 * i, 1] + alpha[i] * (coordinate[2 * i, 0] + span[i])]])
+            zone[i] = np.array([[0, 1, -coordinate[2 * i + 1, 1]], [0, 1, -coordinate[2 * i, 1]], [alpha[i], -1, coordinate[2 * i, 1] - alpha[i] * (coordinate[2 * i, 0] - span[i])] / alpha[i], [alpha[i], -1, coordinate[2 * i, 1] - alpha[i] * (coordinate[2 * i, 0] + span[i])] / alpha[i]])
 
-print(zoneState)
 # Some output parameters
 totalFrames = 0
 totalDown = 0
@@ -169,7 +166,6 @@ while True:
         detections = detections[detections[:, 2] > args.thr]
         detections = detections[detections[:, 1] == personID]
 
-
         # Filter detections based on: Zone
         zoneCon = np.zeros((len(detections), 1), dtype = bool).flatten()
         for i in range(0, len(zoneState)):
@@ -185,6 +181,7 @@ while True:
                 minCoor = min(coordinate[2 * i, 0], coordinate[2 * i + 1, 0])
                 maxCoor = max(coordinate[2 * i, 0], coordinate[2 * i + 1, 0])
                 limitCon = np.logical_or(detections[:, 5] * width < minCoor - span[i], detections[:, 3] * width > maxCoor + span[i])
+                
             InCon = np.logical_not(np.logical_or.reduce([uExCon, dExCon, lExCon, rExCon, limitCon]))
             zoneCon = np.logical_or(zoneCon, InCon)
         detections = detections[zoneCon]            
@@ -243,7 +240,7 @@ while True:
 
 		# Create a new one if there is None
         if to is None:
-            to = TrackableObject(objectID, centroid)
+            to = TrackableObject(objectID, centroid, len(zoneState))
 
 		# Checking if the conditions are enough to determine passing-line object
         else:
@@ -338,7 +335,7 @@ while True:
     totalFrames += 1
     fps.update()
     cv2.imshow("frame", frame)
-    print(time.time()-start)
+    # print(time.time()-start)
     if cv2.waitKey(1) == ord('q'):
         break
 
