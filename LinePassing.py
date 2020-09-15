@@ -93,13 +93,13 @@ while True:
             cv2.line(firstFrame, (coordinate[i - 1][0], coordinate[i - 1][1]), (coordinate[i - 2][0], coordinate[i - 2][1]), (255, 255, 255), 1)
         if i == 4:
             cv2.setMouseCallback("Zone", lambda *args: None)
-            # lock = True
 
     cv2.imshow("Zone", firstFrame)
     if cv2.waitKey(1) == ord('d'):
         cv2.destroyWindow("Zone")
         break
 
+lock = False
 coordinate = np.array(coordinate)
 
 
@@ -108,29 +108,40 @@ zone = np.zeros((2, 4, 3), dtype = float)
 alpha = np.array([0, 0], dtype = float)
 span = np.array([0, 0], dtype = float)
 zoneState = []
+zoneCondition = []
 
 for i in range(0, int(len(coordinate) / 2)):
     alpha[i] = (coordinate[2 * i, 1] - coordinate[2 * i + 1, 1]) / (coordinate[2 * i, 0] - coordinate[2 * i + 1, 0])
     if abs(coordinate[2 * i, 0] - coordinate[2 * i + 1, 0]) > 2 * abs(coordinate[2 * i, 1] - coordinate[2 * i + 1, 1]):
         span[i] = int(20 * math.sqrt((coordinate[2 * i, 0] - coordinate[2 * i + 1, 0])**2 + (coordinate[2 * i, 1] - coordinate[2 * i + 1, 1])**2) / abs(coordinate[2 * i, 0] - coordinate[2 * i + 1, 0]))
-        zoneState.append(True)
         if coordinate[2 * i, 0] < coordinate[2 * i + 1, 0]:
             zone[i] = np.array([[-alpha[i], 1, -coordinate[2 * i, 1] + span[i] + alpha[i] * coordinate[2 * i, 0]], [-alpha[i], 1, -coordinate[2 * i, 1] - span[i] + alpha[i] * coordinate[2 * i, 0]], [1, 0, -coordinate[2 * i, 0]], [1, 0, -coordinate[2 * i + 1, 0]]])
         else:
             zone[i] = np.array([[-alpha[i], 1, -coordinate[2 * i, 1] + span[i] + alpha[i] * coordinate[2 * i, 0]], [-alpha[i], 1, -coordinate[2 * i, 1] - span[i] + alpha[i] * coordinate[2 * i, 0]], [1, 0, -coordinate[2 * i + 1, 0]], [1, 0, -coordinate[2 * i, 0]]])
+        
+        zoneState.append(True)
+        partCondition = np.array([[[-zone[i, 1, 0], 0, 0, -zone[i, 1, 1], -zone[i, 1, 2] - span[i]], [0, 0, -zone[i, 1, 0], -zone[i, 1, 1], -zone[i, 1, 2] - span[i]]], [[zone[i, 1, 0], 0, 0, zone[i, 1, 1], zone[i, 1, 2]], [0, 0, zone[i, 1, 0], zone[i, 1, 1], zone[i, 1, 2]]]], dtype = float)
+        zoneCondition.append(partCondition)
     else:
         span[i] = int(20 * math.sqrt((coordinate[2 * i, 0] - coordinate[2 * i + 1, 0])**2 + (coordinate[2 * i, 1] - coordinate[2 * i + 1, 1])**2) / abs(coordinate[2 * i, 1] - coordinate[2 * i + 1, 1]))
-        zoneState.append(False)
         if coordinate[2 * i, 1] < coordinate[2 * i + 1, 1]:
             zone[i] = np.array([[0, 1, -coordinate[2 * i, 1]], [0, 1, -coordinate[2 * i + 1, 1]], [alpha[i], -1, coordinate[2 * i, 1] - alpha[i] * (coordinate[2 * i, 0] - span[i])] / alpha[i], [alpha[i], -1, coordinate[2 * i, 1] - alpha[i] * (coordinate[2 * i, 0] + span[i])] / alpha[i]])
         else:
             zone[i] = np.array([[0, 1, -coordinate[2 * i + 1, 1]], [0, 1, -coordinate[2 * i, 1]], [alpha[i], -1, coordinate[2 * i, 1] - alpha[i] * (coordinate[2 * i, 0] - span[i])] / alpha[i], [alpha[i], -1, coordinate[2 * i, 1] - alpha[i] * (coordinate[2 * i, 0] + span[i])] / alpha[i]])
+
+        zoneState.append(False)
+        partCondition = np.array([[[-zone[i, 2, 0], -zone[i, 2, 1], 0, 0, -zone[i, 1, 2] - span[i]], [-zone[i, 2, 0], 0, 0, -zone[i, 2, 1], -zone[i, 1, 2] - span[i]]], [[0, zone[i, 3, 1], zone[i, 3, 0], 0, zone[i, 3, 2] + span[i]], [0, 0, zone[i, 3, 0], zone[i, 3, 1], zone[i, 3, 2] + span[i]]]])
+        zoneCondition.append(partCondition)
+
+zoneCondition = np.array(zoneCondition)
+
 
 # Some output parameters
 totalFrames = 0
 totalDown = 0
 totalUp = 0
 totalLeft = 0
+totalRight = 0
 fps = FPS().start()
 
 
@@ -241,10 +252,33 @@ while True:
 		# Create a new one if there is None
         if to is None:
             to = TrackableObject(objectID, centroid, len(zoneState))
+            formatCentroid = np.append(centroid[0:4], [1])
+            newState = np.logical_and.reduce(np.dot(zoneCondition, formatCentroid) > 0, axis = -1)
+            to.state = newState
 
 		# Checking if the conditions are enough to determine passing-line object
         else:
             firstPos = to.landmarks[0]
+            formatCentroid = np.append(centroid[0:4], [1])
+            start = time.time()
+            newState = np.logical_and.reduce(np.dot(zoneCondition, formatCentroid) > 0, axis = -1)
+            
+            for i in range(0, len(zoneState)):
+                print("BBBBBBBBBBB", to.state)
+                if not np.logical_xor(newState[i, 0], newState[i, 1]):
+                    newState[i] = to.state[i]
+            if np.logical_or.reduce(np.logical_xor(to.state, newState), axis = None):
+                if True in newState[:]:
+                    totalDown += 1  
+                    lock = True
+                    print("AAAAAAAA")
+                    
+            print(objectID, newState)
+            to.state = newState
+
+
+            
+            # print(time.time()-start)
             # upState = (zone[1, 0] * firstPos[0] + zone[1, 1] * firstPos[3] + zone[1, 2] < 0) and (zone[1, 0] * firstPos[2] + zone[1, 1] * firstPos[3] + zone[1, 2] < 0)
             # posDiff = centroid - firstPos
             # isVertical = 2 * abs(posDiff[5]) > abs(posDiff[4])
@@ -331,7 +365,7 @@ while True:
         cv2.putText(frame, text, (10, height - ((i * 20) + 20)), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
 
     ########################################
-
+ 
     totalFrames += 1
     fps.update()
     cv2.imshow("frame", frame)
