@@ -31,7 +31,7 @@ parser.add_argument("--thr", type = float, default = 0.3,
     help = "Threshold")
 parser.add_argument("--skip", type = int, default = 10,
     help = "Number of frames skipped")
-parser.add_argument("--arms", default = "y")
+parser.add_argument("--line", default = 2)
 args = parser.parse_args()
 
 # Create Net and personID
@@ -84,6 +84,7 @@ firstFrame = cv2.resize(firstFrame, (width, height))
 cv2.imshow("Zone", firstFrame)
 cv2.setMouseCallback("Zone", click)
 
+numLine = int(args.line)
 lock = False
 while True:
     if len(coordinate) > 0 and not lock:
@@ -91,7 +92,7 @@ while True:
         cv2.circle(firstFrame, (coordinate[i - 1][0], coordinate[i - 1][1]), 4, (255, 255, 255), -1)
         if i % 2 == 0:
             cv2.line(firstFrame, (coordinate[i - 1][0], coordinate[i - 1][1]), (coordinate[i - 2][0], coordinate[i - 2][1]), (255, 255, 255), 1)
-        if i == 4:
+        if i == 2 * numLine:
             cv2.setMouseCallback("Zone", lambda *args: None)
 
     cv2.imshow("Zone", firstFrame)
@@ -104,9 +105,9 @@ coordinate = np.array(coordinate)
 
 
 # Create zone depending on direction
-zone = np.zeros((2, 4, 3), dtype = float)
-alpha = np.array([0, 0], dtype = float)
-span = np.array([0, 0], dtype = float)
+zone = np.zeros((numLine, 4, 3), dtype = float)
+alpha = np.zeros((numLine, 1), dtype = float).flatten()
+span = np.zeros((numLine, 1), dtype = float).flatten()
 zoneState = []
 zoneCondition = []
 
@@ -156,7 +157,6 @@ while True:
 
     # Resize and Convert frame for dlib
     frame = cv2.resize(frame, (width, height))
-    copyFrame = copy.copy(frame)
 
     RGB = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
@@ -236,14 +236,15 @@ while True:
         cv2.circle(frame, (coordinate[2 * i, 0], coordinate[2 * i, 1]), 4, (255, 255, 255), -1)
         cv2.circle(frame, (coordinate[2 * i + 1, 0], coordinate[2 * i + 1, 1]), 4, (255, 255, 255), -1)
         cv2.line(frame, (coordinate[2 * i, 0], coordinate[2 * i, 1]), (coordinate[2 * i + 1, 0], coordinate[2 * i + 1, 1]), (255, 255, 255), 1)
-        if zoneState[i]:
-            cv2.line(frame, (coordinate[2 * i, 0], coordinate[2 * i, 1] + int(span[i])), (coordinate[2 * i + 1, 0], coordinate[2 * i + 1, 1] + int(span[i])), (255, 255, 255), 2)
-            cv2.line(frame, (coordinate[2 * i, 0], coordinate[2 * i, 1] - int(span[i])), (coordinate[2 * i + 1, 0], coordinate[2 * i + 1, 1] - int(span[i])), (255, 255, 255), 2)
-        else:
-            cv2.line(frame, (coordinate[2 * i, 0] + int(span[i]), coordinate[2 * i, 1]), (coordinate[2 * i + 1, 0] + int(span[i]), coordinate[2 * i + 1, 1]), (255, 255, 255), 2)
-            cv2.line(frame, (coordinate[2 * i, 0] - int(span[i]), coordinate[2 * i, 1]), (coordinate[2 * i + 1, 0] - int(span[i]), coordinate[2 * i + 1, 1]), (255, 255, 255), 2)
+        # if zoneState[i]:
+        #     cv2.line(frame, (coordinate[2 * i, 0], coordinate[2 * i, 1] + int(span[i])), (coordinate[2 * i + 1, 0], coordinate[2 * i + 1, 1] + int(span[i])), (255, 255, 255), 2)
+        #     cv2.line(frame, (coordinate[2 * i, 0], coordinate[2 * i, 1] - int(span[i])), (coordinate[2 * i + 1, 0], coordinate[2 * i + 1, 1] - int(span[i])), (255, 255, 255), 2)
+        # else:
+        #     cv2.line(frame, (coordinate[2 * i, 0] + int(span[i]), coordinate[2 * i, 1]), (coordinate[2 * i + 1, 0] + int(span[i]), coordinate[2 * i + 1, 1]), (255, 255, 255), 2)
+        #     cv2.line(frame, (coordinate[2 * i, 0] - int(span[i]), coordinate[2 * i, 1]), (coordinate[2 * i + 1, 0] - int(span[i]), coordinate[2 * i + 1, 1]), (255, 255, 255), 2)
 
 
+    copyFrame = copy.copy(frame)
     # Check object conditions
     for (objectID, centroid) in objects.items():
         text = "ID {}".format(objectID)
@@ -264,17 +265,67 @@ while True:
             newState = np.logical_and.reduce(np.dot(zoneCondition, formatCentroid) > 0, axis = -1)
             
             for i in range(0, len(zoneState)):
-                print("BBBBBBBBBBB", to.state)
                 if not np.logical_xor(newState[i, 0], newState[i, 1]):
                     newState[i] = to.state[i]
+            
+            placeMap = np.logical_and(np.logical_xor(to.state, newState), newState)
+            placeMap = np.where(placeMap == True)
+
             if np.logical_or.reduce(np.logical_xor(to.state, newState), axis = None):
                 if True in newState[:]:
-                    totalDown += 1  
                     lock = True
-                    print("AAAAAAAA")
                     
-            print(objectID, newState)
+                    
             to.state = newState
+
+            # Determine direction
+            copyCopyFrame = copy.copy(copyFrame)
+            if lock:
+                lock = False
+                line = int(placeMap[0])
+                direction = int(placeMap[1])
+                if zoneState[line]:
+                    if direction == 0:
+                        totalUp += 1
+                        to.direction = "UP"
+                    else:
+                        totalDown += 1
+                        to.direction = "DOWN"
+                else:
+                    if direction == 0:
+                        totalLeft += 1
+                        to.direction = "LEFT"
+                    else:
+                        totalRight += 1
+                        to.direction = "RIGHT"
+
+                copyCopyFrame = cv2.cvtColor(copyCopyFrame, cv2.COLOR_BGR2RGB)
+                cv2.rectangle(copyCopyFrame, (centroid[0], centroid[1]), (centroid[2], centroid[3]), (255, 255, 255), 2)
+                im = Image.fromarray(copyCopyFrame)
+                im.save("/home/ubuntu/mongodb images/" + str(_id) + ".jpg")
+
+                # now = datetime.datetime.now()
+                # collection.insert_one({"_id": _id, "time": now.strftime("%d/%m/%Y %H:%M:%S"), "direction": to.direction, "line": line, "evidence": ""})
+                _id += 1
+
+
+
+            if not to.direction:
+                cv2.rectangle(frame, (centroid[0], centroid[1]), (centroid[2], centroid[3]), (0, 255, 0), 2)
+                cv2.putText(frame, text, (centroid[0] - 10, centroid[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+                cv2.circle(frame, (centroid[0], centroid[1]), 4, (0, 255, 0), -1)
+            else:
+                if to.direction == "UP":
+                    color = (0, 0, 255)
+                elif to.direction == "DOWN":
+                    color = (0, 255, 255)
+                elif to.direction == "LEFT":
+                    color = (128, 255, 128)
+                else:
+                    color = (255, 128, 128)
+                cv2.rectangle(frame, (centroid[0], centroid[1]), (centroid[2], centroid[3]), color, 2)
+                cv2.putText(frame, text, (centroid[0] - 10, centroid[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+                cv2.circle(frame, (centroid[0], centroid[1]), 4, color, -1)
 
 
             
@@ -290,12 +341,11 @@ while True:
             # to.landmarks.append(centroid)
 
 
-            copyCopyFrame = copy.copy(copyFrame)
 			# Check to see if the object has been counted or not
-            if not to.counted:
-                cv2.rectangle(frame, (centroid[0], centroid[1]), (centroid[2], centroid[3]), (0, 255, 0), 2)
-                cv2.putText(frame, text, (centroid[0] - 10, centroid[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
-                cv2.circle(frame, (centroid[0], centroid[1]), 4, (0, 255, 0), -1)
+            # if not to.counted:
+            #     cv2.rectangle(frame, (centroid[0], centroid[1]), (centroid[2], centroid[3]), (0, 255, 0), 2)
+            #     cv2.putText(frame, text, (centroid[0] - 10, centroid[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+            #     cv2.circle(frame, (centroid[0], centroid[1]), 4, (0, 255, 0), -1)
             #     if isVertical:
             #         if isUp:
             #             totalUp += 1
@@ -307,8 +357,8 @@ while True:
             #             cv2.circle(copyCopyFrame, (coordinate[0, 0], coordinate[0, 1]), 4, (255, 255, 255), -1)
             #             cv2.circle(copyCopyFrame, (coordinate[1, 0], coordinate[1, 1]), 4, (255, 255, 255), -1)
             #             cv2.line(copyCopyFrame, (coordinate[0, 0], coordinate[0, 1]), (coordinate[1, 0], coordinate[1, 1]), (255, 255, 255), 1)
-            #             im = Image.fromarray(copyCopyFrame)
-            #             im.save("/home/ubuntu/mongodb images/" + str(_id) + ".jpg")
+                        # im = Image.fromarray(copyCopyFrame)
+                        # im.save("/home/ubuntu/mongodb images/" + str(_id) + ".jpg")
 
             # #             now = datetime.datetime.now()
             # #             collection.insert_one({"_id": _id, "time": now.strftime("%d/%m/%Y %H:%M:%S"), "direction": "up", "evidence": ""})
@@ -356,7 +406,8 @@ while True:
     info = [
 		("Up", totalUp),
 		("Down", totalDown),
-        ("Left", totalLeft)
+        ("Left", totalLeft),
+        ("Right", totalRight)
     ]
 
 	# loop over the info tuples and draw them on our frame

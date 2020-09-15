@@ -4,7 +4,7 @@ class TrackableObject:
         self.objectID = objectID
         self.landmarks = [landmark]
 
-        self.counted = False
+        self.direction = None
         self.up = False
 
         self.state = np.zeros((lineNum, 2), dtype = bool)
