@@ -304,8 +304,8 @@ while True:
                 im = Image.fromarray(copyCopyFrame)
                 im.save("/home/ubuntu/mongodb images/" + str(_id) + ".jpg")
 
-                # now = datetime.datetime.now()
-                # collection.insert_one({"_id": _id, "time": now.strftime("%d/%m/%Y %H:%M:%S"), "direction": to.direction, "line": line, "evidence": ""})
+                now = datetime.datetime.now()
+                collection.insert_one({"_id": _id, "time": now.strftime("%d/%m/%Y %H:%M:%S"), "direction": to.direction, "line": line, "evidence": ""})
                 _id += 1
 
 
