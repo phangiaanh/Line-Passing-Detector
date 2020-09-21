@@ -19,6 +19,7 @@ while True:
 
     firstNameID = int(firstFile.split(".")[0])
 
+
     evidence = fs.put(open('/home/ubuntu/mongodb images/' + firstFile, 'rb'), filename = firstFile)
 
     collection.update_one({'_id': firstNameID}, {'$set': {'evidence': evidence}})

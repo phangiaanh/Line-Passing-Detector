@@ -5,6 +5,13 @@ from pymongo import MongoClient
 
 import pymongo
 from PIL import Image
+from bson.binary import Binary
+import pickle 
+from io import StringIO, BytesIO
+from base64 import b64encode
+from paho.mqtt import client as mqtt_client
+import json
+
 
 import numpy as np
 import argparse
@@ -64,6 +71,27 @@ cluster = MongoClient("mongodb://PGA:111199@cluster0-shard-00-00.gjysk.mongodb.n
 db = cluster["test"]
 collection = db["test"]
 _id = 0
+
+# MQTT Configuration
+broker = 'localhost'
+port = 1883
+topic = "test"
+client_id = '111199'
+def connect_mqtt():
+    def on_connect(client, userdata, flags, rc):
+        if rc == 0:
+            print("Connected to MQTT Broker!")
+        else:
+            print("Failed to connect, return code %d\n", rc)
+
+    client = mqtt_client.Client(client_id)
+    client.on_connect = on_connect
+    client.connect(broker, port)
+    return client
+client = connect_mqtt()
+client.loop_start()
+
+
 
 # Set dimension
 width = 550
@@ -167,7 +195,8 @@ while True:
         trackerList = []
 
         # Get detections
-        blob = cv2.dnn.blobFromImage(frame, size = (width, height))
+        # blob = cv2.dnn.blobFromImage(frame, size = (width, height))
+        blob = cv2.dnn.blobFromImage(frame, 0.007843, (width, height), (127.5, 127.5, 127.5), False)
         net.setInput(blob)
         detections = net.forward()
 
@@ -211,15 +240,15 @@ while True:
     else:
         # Update trackers
         for tracker in trackerList:
-            tracker.update(RGB)
+            tracker.update(frame)
             position = tracker.get_position()
-
             startX = int(position.left())
             startY = int(position.top())
             endX = int(position.right())
             endY = int(position.bottom())
 
             rectList.append((startX, startY, endX, endY))
+        
 
     # Change skip time
     if len(trackerList) < 3:
@@ -229,7 +258,6 @@ while True:
 
     # Update objects
     objects = centroidTracker.update(rectList)
-
 
     # Visualize results
     for i in range(0, len(zoneState)):
@@ -261,7 +289,7 @@ while True:
         else:
             firstPos = to.landmarks[0]
             formatCentroid = np.append(centroid[0:4], [1])
-            start = time.time()
+            # start = time.time()
             newState = np.logical_and.reduce(np.dot(zoneCondition, formatCentroid) > 0, axis = -1)
             
             for i in range(0, len(zoneState)):
@@ -301,15 +329,28 @@ while True:
 
                 copyCopyFrame = cv2.cvtColor(copyCopyFrame, cv2.COLOR_BGR2RGB)
                 cv2.rectangle(copyCopyFrame, (centroid[0], centroid[1]), (centroid[2], centroid[3]), (255, 255, 255), 2)
-                im = Image.fromarray(copyCopyFrame)
-                im.save("/home/ubuntu/mongodb images/" + str(_id) + ".jpg")
-
+                
+                
+                evidence = Image.fromarray(copyCopyFrame, 'RGB')
+                a = b64encode(evidence.tobytes())
+                buffer = BytesIO()
+                evidence.save(buffer, format = "JPEG")
+                base64Image = str(b64encode(buffer.getvalue()))
+                
+                start = time.time()
                 now = datetime.datetime.now()
-                collection.insert_one({"_id": _id, "time": now.strftime("%d/%m/%Y %H:%M:%S"), "direction": to.direction, "line": line, "evidence": ""})
+                print(_id)
+                message = json.dumps({"_id": _id, "time": now.strftime("%d/%m/%Y %H:%M:%S"), "direction": to.direction, "line": line, "evidence": base64Image})
+                result = client.publish(topic, message)
+                print("Publish time:", time.time() - start)
+                
+                # start = time.time()
+                # collection.insert_one({"_id": _id, "time": now.strftime("%d/%m/%Y %H:%M:%S"), "direction": to.direction, "line": line, "evidence": base64Image})
+                # print("Database time:", time.time() - start)
                 _id += 1
 
 
-
+            
             if not to.direction:
                 cv2.rectangle(frame, (centroid[0], centroid[1]), (centroid[2], centroid[3]), (0, 255, 0), 2)
                 cv2.putText(frame, text, (centroid[0] - 10, centroid[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
