@@ -23,6 +23,11 @@ import cv2
 import copy
 import math
 
+# With Caffe model:
+#     python3 LinePassing.py --config MobileNet/MobileNetSSD_deploy.prototxt --model MobileNet/MobileNetSSD_deploy.caffemodel --net caffe --input /home/ubuntu/Desktop/Video_Campus.mp4 --line 3 --skip 5
+# With Tensorflow model:
+#     python3 LinePassing.py --config ssd_inception_v2_coco_2018_01_28/graph.pbtxt --model ssd_inception_v2_coco_2018_01_28/frozen_inference_graph.pb  --input /home/ubuntu/Desktop/Video_Campus.mp4 --line 3 --skip 5
+
 
 # Parser Initializing
 parser = argparse.ArgumentParser()
@@ -30,7 +35,7 @@ parser.add_argument("--config", required = True,
     help = "Path to [caffe tensorflow] config file")
 parser.add_argument("--model", required = True,
     help = "Path to [caffe tensorflow] model file")
-parser.add_argument("--net", required = True, default = "tensorflow",
+parser.add_argument("--net", default = "tensorflow",
     help = "Type of net [caffe tensorflow]")
 parser.add_argument("--input",
     help = "Path to video file")
@@ -62,25 +67,31 @@ else:
     capture = cv2.VideoCapture(0)
     isVideo = False
 
+
+# Initialize tracking objects
 centroidTracker = Tracker(maxDisappeared = 20, maxDistance = 70)
 trackableObjects = {}
 trackerList = []
 
+
 # Setup MongoDB
-cluster = MongoClient("mongodb://PGA:111199@cluster0-shard-00-00.gjysk.mongodb.net:27017,cluster0-shard-00-01.gjysk.mongodb.net:27017,cluster0-shard-00-02.gjysk.mongodb.net:27017/<dbname>?ssl=true&replicaSet=atlas-8sqsyx-shard-0&authSource=admin&retryWrites=true&w=majority")
-db = cluster["test"]
-collection = db["test"]
+# cluster = MongoClient("mongodb://PGA:111199@cluster0-shard-00-00.gjysk.mongodb.net:27017,cluster0-shard-00-01.gjysk.mongodb.net:27017,cluster0-shard-00-02.gjysk.mongodb.net:27017/<dbname>?ssl=true&replicaSet=atlas-8sqsyx-shard-0&authSource=admin&retryWrites=true&w=majority")
+# db = cluster["test"]
+# collection = db["test"]
 _id = 0
 
+
 # MQTT Configuration
-broker = 'localhost'
+broker = 'broker.emqx.io'
 port = 1883
-topic = "test"
+topic = "hmh-pga-internship-2020"
 client_id = '111199'
+
+
 def connect_mqtt():
     def on_connect(client, userdata, flags, rc):
         if rc == 0:
-            print("Connected to MQTT Broker!")
+            print("Connected to ", broker, " port: ", port)
         else:
             print("Failed to connect, return code %d\n", rc)
 
@@ -98,13 +109,15 @@ width = 550
 skip = args.skip
 coordinate = []
 
+
+
+# Set zone
+# Click function for visualization
 def click(event, x, y, flags, param):
     global coordinate
     if event == cv2.EVENT_LBUTTONDOWN:
         coordinate.append((x, y))
 
-
-# Set zone
 _, firstFrame = capture.read()
 height = int(width * firstFrame.shape[0] / firstFrame.shape[1])
 firstFrame = cv2.resize(firstFrame, (width, height))
@@ -139,6 +152,8 @@ span = np.zeros((numLine, 1), dtype = float).flatten()
 zoneState = []
 zoneCondition = []
 
+
+# Create equations of zones
 for i in range(0, int(len(coordinate) / 2)):
     alpha[i] = (coordinate[2 * i, 1] - coordinate[2 * i + 1, 1]) / (coordinate[2 * i, 0] - coordinate[2 * i + 1, 0])
     if abs(coordinate[2 * i, 0] - coordinate[2 * i + 1, 0]) > 2 * abs(coordinate[2 * i, 1] - coordinate[2 * i + 1, 1]):
@@ -195,8 +210,11 @@ while True:
         trackerList = []
 
         # Get detections
-        # blob = cv2.dnn.blobFromImage(frame, size = (width, height))
-        blob = cv2.dnn.blobFromImage(frame, 0.007843, (width, height), (127.5, 127.5, 127.5), False)
+        if isCaffe:
+            blob = cv2.dnn.blobFromImage(frame, 0.007843, (width, height), (127.5, 127.5, 127.5), False)
+        else:
+            blob = cv2.dnn.blobFromImage(frame, size = (width, height))
+    
         net.setInput(blob)
         detections = net.forward()
 
@@ -261,9 +279,13 @@ while True:
 
     # Visualize results
     for i in range(0, len(zoneState)):
-        cv2.circle(frame, (coordinate[2 * i, 0], coordinate[2 * i, 1]), 4, (255, 255, 255), -1)
-        cv2.circle(frame, (coordinate[2 * i + 1, 0], coordinate[2 * i + 1, 1]), 4, (255, 255, 255), -1)
-        cv2.line(frame, (coordinate[2 * i, 0], coordinate[2 * i, 1]), (coordinate[2 * i + 1, 0], coordinate[2 * i + 1, 1]), (255, 255, 255), 1)
+        if zoneState[i]:
+            color = (77, 77, 255)
+        else:
+            color = (255, 255, 255)
+        cv2.circle(frame, (coordinate[2 * i, 0], coordinate[2 * i, 1]), 4, color, -1)
+        cv2.circle(frame, (coordinate[2 * i + 1, 0], coordinate[2 * i + 1, 1]), 4, color, -1)
+        cv2.line(frame, (coordinate[2 * i, 0], coordinate[2 * i, 1]), (coordinate[2 * i + 1, 0], coordinate[2 * i + 1, 1]), color, 2)
         # if zoneState[i]:
         #     cv2.line(frame, (coordinate[2 * i, 0], coordinate[2 * i, 1] + int(span[i])), (coordinate[2 * i + 1, 0], coordinate[2 * i + 1, 1] + int(span[i])), (255, 255, 255), 2)
         #     cv2.line(frame, (coordinate[2 * i, 0], coordinate[2 * i, 1] - int(span[i])), (coordinate[2 * i + 1, 0], coordinate[2 * i + 1, 1] - int(span[i])), (255, 255, 255), 2)
@@ -298,7 +320,7 @@ while True:
             
             placeMap = np.logical_and(np.logical_xor(to.state, newState), newState)
             placeMap = np.where(placeMap == True)
-
+            
             if np.logical_or.reduce(np.logical_xor(to.state, newState), axis = None):
                 if True in newState[:]:
                     lock = True
@@ -368,82 +390,11 @@ while True:
                 cv2.putText(frame, text, (centroid[0] - 10, centroid[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
                 cv2.circle(frame, (centroid[0], centroid[1]), 4, color, -1)
 
-
-            
-            # print(time.time()-start)
-            # upState = (zone[1, 0] * firstPos[0] + zone[1, 1] * firstPos[3] + zone[1, 2] < 0) and (zone[1, 0] * firstPos[2] + zone[1, 1] * firstPos[3] + zone[1, 2] < 0)
-            # posDiff = centroid - firstPos
-            # isVertical = 2 * abs(posDiff[5]) > abs(posDiff[4])
-            # isUp = posDiff[3] < -span and ((zone[0, 0] * centroid[0] + zone[0, 1] * centroid[3] + zone[0, 2] - span < 0) or (zone[0, 0] * centroid[2] + zone[0, 1] * centroid[3] + zone[0, 2] - span < 0))
-            # isDown = posDiff[3] > span and ((zone[1, 0] * centroid[0] + zone[1, 1] * centroid[3] + zone[1, 2] > 0) or (zone[1, 0] * centroid[2] + zone[1, 1] * centroid[3] + zone[1, 2] > 0))
-            # isUp = isUp and not upState
-            # isDown = isDown and upState
-            # # isVertical = isVertical if args.arms == "y" else True
-            # to.landmarks.append(centroid)
-
-
-			# Check to see if the object has been counted or not
-            # if not to.counted:
-            #     cv2.rectangle(frame, (centroid[0], centroid[1]), (centroid[2], centroid[3]), (0, 255, 0), 2)
-            #     cv2.putText(frame, text, (centroid[0] - 10, centroid[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
-            #     cv2.circle(frame, (centroid[0], centroid[1]), 4, (0, 255, 0), -1)
-            #     if isVertical:
-            #         if isUp:
-            #             totalUp += 1
-            #             to.counted = True
-            #             to.up = True
-
-            #             copyCopyFrame = cv2.cvtColor(copyCopyFrame, cv2.COLOR_BGR2RGB)
-            #             cv2.rectangle(copyCopyFrame, (centroid[0], centroid[1]), (centroid[2], centroid[3]), (255, 255, 255), 2)
-            #             cv2.circle(copyCopyFrame, (coordinate[0, 0], coordinate[0, 1]), 4, (255, 255, 255), -1)
-            #             cv2.circle(copyCopyFrame, (coordinate[1, 0], coordinate[1, 1]), 4, (255, 255, 255), -1)
-            #             cv2.line(copyCopyFrame, (coordinate[0, 0], coordinate[0, 1]), (coordinate[1, 0], coordinate[1, 1]), (255, 255, 255), 1)
-                        # im = Image.fromarray(copyCopyFrame)
-                        # im.save("/home/ubuntu/mongodb images/" + str(_id) + ".jpg")
-
-            # #             now = datetime.datetime.now()
-            # #             collection.insert_one({"_id": _id, "time": now.strftime("%d/%m/%Y %H:%M:%S"), "direction": "up", "evidence": ""})
-            #             _id = _id + 1
-
-
-            #         if isDown:
-            #             totalDown += 1
-            #             to.counted = True
-            #             to.up = False
-
-            #             copyCopyFrame = cv2.cvtColor(copyCopyFrame, cv2.COLOR_BGR2RGB)
-            #             cv2.rectangle(copyCopyFrame, (centroid[0], centroid[1]), (centroid[2], centroid[3]), (255, 255, 255), 2)
-            #             cv2.circle(copyCopyFrame, (coordinate[0, 0], coordinate[0, 1]), 4, (255, 255, 255), -1)
-            #             cv2.circle(copyCopyFrame, (coordinate[1, 0], coordinate[1, 1]), 4, (255, 255, 255), -1)
-            #             cv2.line(copyCopyFrame, (coordinate[0, 0], coordinate[0, 1]), (coordinate[1, 0], coordinate[1, 1]), (255, 255, 255), 1)
-            #             im = Image.fromarray(copyCopyFrame)
-            #             im.save("/home/ubuntu/mongodb images/" + str(_id) + ".jpg")
-
-            # #             now = datetime.datetime.now()
-            # #             collection.insert_one({"_id": _id, "time": now.strftime("%d/%m/%Y %H:%M:%S"), "direction": "down", "evidence": ""})
-            #             _id = _id + 1
-
-            # #     else:
-            # #         if posDiff[0] < -zone[2] / 2 and centroid[0] < zone[0]:
-            # #             totalLeft += 1
-            # #             to.counted = True
-            # #             cv2.rectangle(copyCopyFrame, (centroid[0], centroid[1]), (centroid[2], centroid[3]), (0, 255, 0), 2)
-
-            # else:
-            #     if to.up:
-            #         cv2.rectangle(frame, (centroid[0], centroid[1]), (centroid[2], centroid[3]), (0, 0, 255), 2)
-            #         cv2.putText(frame, text, (centroid[0] - 10, centroid[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
-            #         cv2.circle(frame, (centroid[0], centroid[1]), 4, (0, 0, 255), -1)
-            #     else:
-            #         cv2.rectangle(frame, (centroid[0], centroid[1]), (centroid[2], centroid[3]), (255, 0, 0), 2)
-            #         cv2.putText(frame, text, (centroid[0] - 10, centroid[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
-            #         cv2.circle(frame, (centroid[0], centroid[1]), 4, (255, 0, 0), -1)
         trackableObjects[objectID] = to
 
 
 
-	# construct a tuple of information we will be displaying on the
-	# frame
+	# Display info on frame
     info = [
 		("Up", totalUp),
 		("Down", totalDown),
@@ -451,13 +402,11 @@ while True:
         ("Right", totalRight)
     ]
 
-	# loop over the info tuples and draw them on our frame
     for (i, (k, v)) in enumerate(info):
         text = "{}: {}".format(k, v)
         cv2.putText(frame, text, (10, height - ((i * 20) + 20)), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
 
-    ########################################
- 
+
     totalFrames += 1
     fps.update()
     cv2.imshow("frame", frame)
@@ -469,6 +418,3 @@ fps.stop()
 print(totalUp, totalDown)
 print("[INFO] elapsed time: {:.2f}".format(fps.elapsed()))
 print("[INFO] approx. FPS: {:.2f}".format(fps.fps()))
-
-
-# python3 LinePassing.py --config ssd_inception_v2_coco_2018_01_28/graph.pbtxt --model ssd_inception_v2_coco_2018_01_28/frozen_inference_graph.pb --input /home/ubuntu/Desktop/pmh_face_15p.mp4 --place far --arms y --net tensorflow
