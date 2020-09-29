@@ -6,5 +6,6 @@ class TrackableObject:
 
         self.direction = None
         self.up = False
+        self.place = None
 
         self.state = np.zeros((lineNum, 2), dtype = bool)

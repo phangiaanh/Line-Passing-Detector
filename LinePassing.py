@@ -18,6 +18,7 @@ import argparse
 import imutils
 import datetime
 import time
+import pytz
 import dlib
 import cv2
 import copy
@@ -58,13 +59,13 @@ else:
 
 
 # Check input
-if args.input:
+if len(args.input) > 2:
     print("[INFO] Opening Video File")
     capture = cv2.VideoCapture(args.input)
     isVideo = True
 else:
     print("[INFO] Starting Video Stream")
-    capture = cv2.VideoCapture(0)
+    capture = cv2.VideoCapture(int(args.input))
     isVideo = False
 
 
@@ -78,7 +79,6 @@ trackerList = []
 # cluster = MongoClient("mongodb://PGA:111199@cluster0-shard-00-00.gjysk.mongodb.net:27017,cluster0-shard-00-01.gjysk.mongodb.net:27017,cluster0-shard-00-02.gjysk.mongodb.net:27017/<dbname>?ssl=true&replicaSet=atlas-8sqsyx-shard-0&authSource=admin&retryWrites=true&w=majority")
 # db = cluster["test"]
 # collection = db["test"]
-_id = 0
 
 
 # MQTT Configuration
@@ -108,6 +108,7 @@ client.loop_start()
 width = 550
 skip = args.skip
 coordinate = []
+arrows = []
 
 
 
@@ -145,6 +146,7 @@ lock = False
 coordinate = np.array(coordinate)
 
 
+
 # Create zone depending on direction
 zone = np.zeros((numLine, 4, 3), dtype = float)
 alpha = np.zeros((numLine, 1), dtype = float).flatten()
@@ -154,7 +156,7 @@ zoneCondition = []
 
 
 # Create equations of zones
-for i in range(0, int(len(coordinate) / 2)):
+for i in range(0, int(len(coordinate) // 2)):
     alpha[i] = (coordinate[2 * i, 1] - coordinate[2 * i + 1, 1]) / (coordinate[2 * i, 0] - coordinate[2 * i + 1, 0])
     if abs(coordinate[2 * i, 0] - coordinate[2 * i + 1, 0]) > 2 * abs(coordinate[2 * i, 1] - coordinate[2 * i + 1, 1]):
         span[i] = int(20 * math.sqrt((coordinate[2 * i, 0] - coordinate[2 * i + 1, 0])**2 + (coordinate[2 * i, 1] - coordinate[2 * i + 1, 1])**2) / abs(coordinate[2 * i, 0] - coordinate[2 * i + 1, 0]))
@@ -179,13 +181,23 @@ for i in range(0, int(len(coordinate) / 2)):
 
 zoneCondition = np.array(zoneCondition)
 
+for i in range(0, len(zoneState)):
+    xCenter = int((coordinate[2 * i, 0] + coordinate[2 * i + 1, 0] ) / 2)
+    yCenter = int((coordinate[2 * i, 1] + coordinate[2 * i + 1, 1] ) / 2)
+    if zoneState[i]:
+        arrows.append([(xCenter, yCenter - 20), (xCenter, yCenter + 20)])
+    else:
+        arrows.append([(xCenter - 20, yCenter), (xCenter + 20, yCenter)])
 
+arrows = np.array(arrows)
+print(arrows)
 # Some output parameters
 totalFrames = 0
 totalDown = 0
 totalUp = 0
 totalLeft = 0
 totalRight = 0
+totalSide = np.zeros((len(zoneState) * 2, 1), dtype = int)
 fps = FPS().start()
 
 
@@ -217,7 +229,7 @@ while True:
     
         net.setInput(blob)
         detections = net.forward()
-
+        print("Time:", time.time() - start)
 
         # Filter detections based on: Confidence and Class
         detections = np.array(detections[0, 0])
@@ -281,11 +293,19 @@ while True:
     for i in range(0, len(zoneState)):
         if zoneState[i]:
             color = (77, 77, 255)
+            cv2.putText(frame, str(2 * i), (arrows[i, 0, 0] + 8, arrows[i, 0, 1]), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color[::-1], 2)
+            cv2.putText(frame, str(2 * i + 1), (arrows[i, 1, 0] + 8, arrows[i, 1, 1]), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color[::-1], 2)
         else:
-            color = (255, 255, 255)
+            color = (255, 77, 77)
+            cv2.putText(frame, str(2 * i), (arrows[i, 0, 0], arrows[i, 0, 1] - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color[::-1], 2)
+            cv2.putText(frame, str(2 * i + 1), (arrows[i, 1, 0], arrows[i, 1, 1] - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color[::-1], 2)
         cv2.circle(frame, (coordinate[2 * i, 0], coordinate[2 * i, 1]), 4, color, -1)
         cv2.circle(frame, (coordinate[2 * i + 1, 0], coordinate[2 * i + 1, 1]), 4, color, -1)
         cv2.line(frame, (coordinate[2 * i, 0], coordinate[2 * i, 1]), (coordinate[2 * i + 1, 0], coordinate[2 * i + 1, 1]), color, 2)
+        cv2.arrowedLine(frame, (*arrows[i, 0], ), (*arrows[i, 1], ), color, 2, tipLength = 0.2)
+        cv2.arrowedLine(frame, (*arrows[i, 1], ), (*arrows[i, 0], ), color, 2, tipLength = 0.2)
+        
+        
         # if zoneState[i]:
         #     cv2.line(frame, (coordinate[2 * i, 0], coordinate[2 * i, 1] + int(span[i])), (coordinate[2 * i + 1, 0], coordinate[2 * i + 1, 1] + int(span[i])), (255, 255, 255), 2)
         #     cv2.line(frame, (coordinate[2 * i, 0], coordinate[2 * i, 1] - int(span[i])), (coordinate[2 * i + 1, 0], coordinate[2 * i + 1, 1] - int(span[i])), (255, 255, 255), 2)
@@ -334,6 +354,8 @@ while True:
                 lock = False
                 line = int(placeMap[0])
                 direction = int(placeMap[1])
+                to.place = 2 * line + direction
+                totalSide[to.place] += 1
                 if zoneState[line]:
                     if direction == 0:
                         totalUp += 1
@@ -360,17 +382,12 @@ while True:
                 base64Image = str(b64encode(buffer.getvalue()))
                 
                 start = time.time()
-                now = datetime.datetime.now()
-                print(_id)
-                message = json.dumps({"_id": _id, "time": now.strftime("%d/%m/%Y %H:%M:%S"), "direction": to.direction, "line": line, "evidence": base64Image})
+                now = datetime.datetime.utcnow()
+                now = now.replace(tzinfo = pytz.UTC)
+                message = json.dumps({"usr": "hoanghm2","cam_id": "SV10", "line": line, "direction": to.place ,"time": now.isoformat(), "evidence": base64Image})
                 result = client.publish(topic, message)
-                print("Publish time:", time.time() - start)
                 
-                # start = time.time()
-                # collection.insert_one({"_id": _id, "time": now.strftime("%d/%m/%Y %H:%M:%S"), "direction": to.direction, "line": line, "evidence": base64Image})
-                # print("Database time:", time.time() - start)
-                _id += 1
-
+                
 
             
             if not to.direction:
@@ -392,19 +409,19 @@ while True:
 
         trackableObjects[objectID] = to
 
-
-
+    text = "{}: {}".format("Area", str(totalSide.flatten()))
+    cv2.putText(frame, text, (10, height - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
 	# Display info on frame
-    info = [
-		("Up", totalUp),
-		("Down", totalDown),
-        ("Left", totalLeft),
-        ("Right", totalRight)
-    ]
+    # info = [
+	# 	("Up", totalUp),
+	# 	("Down", totalDown),
+    #     ("Left", totalLeft),    
+    #     ("Right", totalRight)
+    # ]
 
-    for (i, (k, v)) in enumerate(info):
-        text = "{}: {}".format(k, v)
-        cv2.putText(frame, text, (10, height - ((i * 20) + 20)), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
+    # for (i, (k, v)) in enumerate(info):
+    #     text = "{}: {}".format(k, v)
+    #     cv2.putText(frame, text, (10, height - ((i * 20) + 20)), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
 
 
     totalFrames += 1

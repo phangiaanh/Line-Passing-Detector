@@ -1,6 +1,7 @@
 # # # [Library for workers]
-from multiprocessing import Process, Pipe, Queue
+from multiprocessing import Process, Pipe, Queue, SimpleQueue
 from Worker_Camera import cameraInit
+from threading import Thread
 
 # # # [Library for computer vision]
 import numpy as np
@@ -9,11 +10,16 @@ import dlib
 import cv2
 import math
 
+# # # [Library for measurements]
+from imutils.video import FPS
+
+
 # Input parameters
 paraConfig = paraModel = paraNet = paraThreshold = None
 paraInput = None
 paraSkipRate = None
 paraNumLine = None
+A = None
 
 # Neural network variables
 net = None
@@ -50,9 +56,10 @@ def netInit():
 
 def frameInit():
     global detectionPipe, cameraPipe, initCameraProcess
-
+    global A
     detectionPipe, cameraPipe = Pipe()
-    initCameraProcess = Process(target = cameraInit, args = [cameraPipe])
+    A = Queue()
+    initCameraProcess = Process(target = cameraInit, args = [cameraPipe, A])
     initCameraProcess.start()
 
     detectionPipe.send(paraInput)
@@ -131,6 +138,7 @@ def zoneInit():
 
 def detectionInit(detectProcPipe):
     global paraConfig, paraModel, paraNet, paraInput, paraThreshold, paraSkipRate, paraNumLine
+    global A
     [paraConfig, paraModel, paraNet, paraInput, paraThreshold, paraSkipRate, paraNumLine] = detectProcPipe.recv()
     detectProcPipe.send("Parameter Received")
     netInit()
@@ -148,12 +156,20 @@ def detectionInit(detectProcPipe):
 def detection(detectProcPipe):
     global isCaffe, paraSkipRate, width, height, paraThreshold, personID
     global width, height, coordinate, zone, alpha, span, zoneState
+    global A
+    fps = FPS().start()
     totalFrames = 0
     skip = paraSkipRate
     while True:
-        # frame = detectionPipe.recv()
-        if detectionPipe.poll():
-            frame = detectionPipe.recv()
+        start = time.time()
+        for i in range (0, 100):
+            A = np.zeros((10000, 10000))
+        print("Time:", time.time() - start)
+        frame = detectionPipe.recv()
+        # print(str(id) + "Processed")
+        # if detectionPipe.poll():
+        #     frame = A.get()
+        # frame = A.get(block=True)
         # Resize and Convert frame for dlib
         frame = cv2.resize(frame, (width, height))
 
@@ -172,9 +188,10 @@ def detection(detectProcPipe):
 
             net.setInput(blob)
             detections = net.forward()
-
-
+            # print("Fetch time:", time.time() - start)
+    
             # Filter detections based on: Confidence and Class
+            # start = time.time()
             detections = np.array(detections[0, 0])
             detections = detections[detections[:, 2] > paraThreshold]
             detections = detections[detections[:, 1] == personID]
@@ -198,7 +215,7 @@ def detection(detectProcPipe):
                 InCon = np.logical_not(np.logical_or.reduce([uExCon, dExCon, lExCon, rExCon, limitCon]))
                 zoneCon = np.logical_or(zoneCon, InCon)
             detections = detections[zoneCon]            
-
+            # print("Filter:", time.time() - start)
 
             # For each rectangle that satisfies the condition, assign a tracker
             for i in np.arange(0, detections.shape[0]):
@@ -209,6 +226,8 @@ def detection(detectProcPipe):
                 tracker.start_track(RGB, rect)
 
                 trackerList.append(tracker)
+
+            # print("Tracker time:", time.time() -start)
 
         else:
             # Update trackers
@@ -224,16 +243,25 @@ def detection(detectProcPipe):
 
 
         # Change skip time
-        if len(trackerList) < 3:
-            paraSkipRate = skip * 2
-        else:
-            paraSkipRate = skip
+        # if len(trackerList) < 3:
+        #     paraSkipRate = skip * 2
+        # else:
+        #     paraSkipRate = skip
         totalFrames += 1
-        # for o in rectList:
+        for o in rectList:
+            cv2.rectangle(frame, (o[0], o[1], o[2] - o[0], o[3] - o[1]), (0,0,255), 2)
 
-        #     cv2.rectangle(frame, (o[0], o[1], o[2] - o[0], o[3] - o[1]), (0,0,255), 2)
+        fps.update()
         cv2.imshow("A", frame)
         if cv2.waitKey(1) == ord('q'):
+            cv2.destroyAllWindows()
             break
-        detectProcPipe.send(rectList)
+        
+        if len(rectList) > 0:
+            detectProcPipe.send([True, rectList, frame])
+        else:
+            detectProcPipe.send([False, rectList, frame])
+        
         # print(time.time() - start)
+    fps.stop()
+    print("FPS: {:.2f}".format(fps.fps()))
