@@ -1,6 +1,7 @@
 # # # [Library for workers]
-from multiprocessing import Process, Pipe, Queue, SimpleQueue
+from multiprocessing import Process, Pipe, Queue
 from Worker_Camera import cameraInit
+from Worker_Processing import processingInit
 from threading import Thread
 
 # # # [Library for computer vision]
@@ -13,13 +14,39 @@ import math
 # # # [Library for measurements]
 from imutils.video import FPS
 
+# # # [Library for supporting computations]
+import numpy as np
+import argparse
+import datetime
+import time
+import dlib
+import cv2
+import copy
+import math
+
+
+# Parser Initializing
+parser = argparse.ArgumentParser()
+parser.add_argument("--config", required = True,
+    help = "Path to [caffe tensorflow] config file")
+parser.add_argument("--model", required = True,
+    help = "Path to [caffe tensorflow] model file")
+parser.add_argument("--net", default = "tensorflow",
+    help = "Type of net [caffe tensorflow]")
+parser.add_argument("--input",
+    help = "Path to video file")
+parser.add_argument("--thr", type = float, default = 0.3,
+    help = "Threshold")
+parser.add_argument("--skip", type = int, default = 10,
+    help = "Number of frames skipped")
+parser.add_argument("--line", default = 2)
+args = parser.parse_args()
 
 # Input parameters
 paraConfig = paraModel = paraNet = paraThreshold = None
 paraInput = None
 paraSkipRate = None
 paraNumLine = None
-A = None
 
 # Neural network variables
 net = None
@@ -30,7 +57,6 @@ isCaffe = None
 trackerList = []
 
 # Camera variables
-detectionPipe = cameraPipe = initCameraProcess = None
 firstFrame = None
 
 
@@ -41,6 +67,9 @@ zone = alpha = span = None
 zoneState = []
 zoneCondition = []
 
+# Process variables
+detectCamPipe = camDetectPipe = initCameraProcess = None
+detectProcessPipe = processDetectPipe = initProcessingProcess = None
 
 def netInit():
     global net, personID, isCaffe
@@ -55,19 +84,16 @@ def netInit():
         isCaffe = False
 
 def frameInit():
-    global detectionPipe, cameraPipe, initCameraProcess
-    global A
-    detectionPipe, cameraPipe = Pipe()
-    A = Queue()
-    initCameraProcess = Process(target = cameraInit, args = [cameraPipe, A])
+    global detectCamPipe, camDetectPipe, initCameraProcess
+    detectCamPipe, camDetectPipe = Pipe()
+    initCameraProcess = Process(target = cameraInit, args = [camDetectPipe])
     initCameraProcess.start()
 
-    detectionPipe.send(paraInput)
+    detectCamPipe.send(paraInput)
     
-    if not detectionPipe.recv() == "Camera Received":
+    if not detectCamPipe.recv() == "Camera Received":
         print("Error in Pipe multiprocessing: READING CAMERA INPUT")
     
-
 def pointInit():
     global firstFrame, width, height, coordinate
     def click(event, x, y, flags, param):
@@ -76,7 +102,7 @@ def pointInit():
             coordinate.append((x, y))
 
     width = 550
-    firstFrame = detectionPipe.recv()
+    firstFrame = detectCamPipe.recv()
     height = int(width * firstFrame.shape[0] / firstFrame.shape[1])
     firstFrame = cv2.resize(firstFrame, (width, height))
 
@@ -134,40 +160,39 @@ def zoneInit():
 
     zoneCondition = np.array(zoneCondition)
 
+def processInit():
+    global detectProcessPipe, processDetectPipe, initProcessingProcess
+    detectProcessPipe, processDetectPipe = Pipe()
+    initProcessingProcess = Process(target = processingInit, args = [processDetectPipe])
+    initProcessingProcess.start()
 
-
-def detectionInit(detectProcPipe):
+def detectionInit():
     global paraConfig, paraModel, paraNet, paraInput, paraThreshold, paraSkipRate, paraNumLine
-    global A
-    [paraConfig, paraModel, paraNet, paraInput, paraThreshold, paraSkipRate, paraNumLine] = detectProcPipe.recv()
-    detectProcPipe.send("Parameter Received")
+    [paraConfig, paraModel, paraNet, paraInput, paraThreshold, paraSkipRate, paraNumLine] = [args.config, args.model, args.net, args.input, args.thr, args.skip, args.line]
+    
+    processInit()
     netInit()
     frameInit()
     pointInit()
-    detectProcPipe.send(firstFrame)
-    detectProcPipe.send("Frame Sended")
+    detectProcessPipe.send(firstFrame)
+    detectProcessPipe.send("Frame Sended")
     zoneInit()
-    detectProcPipe.send([zone, zoneState, zoneCondition, span, coordinate])
-    detectProcPipe.send("Zone Sended")
-    detection(detectProcPipe)
-    # detectProcPipe.close()
+    detectProcessPipe.send([zone, zoneState, zoneCondition, span, coordinate])
+    detectProcessPipe.send("Zone Sended")
+    detection(detectProcessPipe)
 
 
-def detection(detectProcPipe):
+def detection(detectProcessPipe):
     global isCaffe, paraSkipRate, width, height, paraThreshold, personID
     global width, height, coordinate, zone, alpha, span, zoneState
-    global A
     fps = FPS().start()
     totalFrames = 0
     skip = paraSkipRate
     while True:
         start = time.time()
-        for i in range (0, 100):
-            A = np.zeros((10000, 10000))
-        print("Time:", time.time() - start)
-        frame = detectionPipe.recv()
+        frame = detectCamPipe.recv()
         # print(str(id) + "Processed")
-        # if detectionPipe.poll():
+        # if detectCamPipe.poll():
         #     frame = A.get()
         # frame = A.get(block=True)
         # Resize and Convert frame for dlib
@@ -188,7 +213,7 @@ def detection(detectProcPipe):
 
             net.setInput(blob)
             detections = net.forward()
-            # print("Fetch time:", time.time() - start)
+            print("Fetch time:", time.time() - start)
     
             # Filter detections based on: Confidence and Class
             # start = time.time()
@@ -258,10 +283,14 @@ def detection(detectProcPipe):
             break
         
         if len(rectList) > 0:
-            detectProcPipe.send([True, rectList, frame])
+            detectProcessPipe.send([True, rectList, frame])
         else:
-            detectProcPipe.send([False, rectList, frame])
+            detectProcessPipe.send([False, rectList, frame])
         
         # print(time.time() - start)
     fps.stop()
     print("FPS: {:.2f}".format(fps.fps()))
+
+
+if __name__ == "__main__":
+    detectionInit()

@@ -11,6 +11,8 @@ from io import StringIO, BytesIO
 from base64 import b64encode
 from paho.mqtt import client as mqtt_client
 import json
+from multiprocessing import Pipe, Process
+from threading import Thread
 
 
 import numpy as np
@@ -197,17 +199,33 @@ totalDown = 0
 totalUp = 0
 totalLeft = 0
 totalRight = 0
-totalSide = np.zeros((len(zoneState) * 2, 1), dtype = int)
+totalSide = np.zeros((len(zoneState), 2), dtype = int)
 fps = FPS().start()
 
+pipe1, pipe2 = Pipe()
+def a(pipe2):
+    # paraInput = pipe2.recv()
+    # if len(paraInput) > 2:
+    #     capture = cv2.VideoCapture(paraInput)
+    # else:
+    #     capture = cv2.VideoCapture(int(paraInput))
+    capture = cv2.VideoCapture("/home/ubuntu/Desktop/Video_Campus.mp4")
+    while True:
+        _, frame = capture.read()
+        pipe2.send(frame)
 
+# capture.release()
+# A = Process(target=a, args=[pipe2])
+# A.start()
+# pipe1.send(args.input)
 while True:
     start = time.time()
     # Get frame
     _, frame = capture.read()
-
+    # frame = pipe1.recv()
     # Check video end
     if isVideo and frame is None:
+        A.terminate()
         break
 
     # Resize and Convert frame for dlib
@@ -293,12 +311,12 @@ while True:
     for i in range(0, len(zoneState)):
         if zoneState[i]:
             color = (77, 77, 255)
-            cv2.putText(frame, str(2 * i), (arrows[i, 0, 0] + 8, arrows[i, 0, 1]), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color[::-1], 2)
-            cv2.putText(frame, str(2 * i + 1), (arrows[i, 1, 0] + 8, arrows[i, 1, 1]), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color[::-1], 2)
+            cv2.putText(frame, str(2 * 0), (arrows[i, 0, 0] + 8, arrows[i, 0, 1]), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color[::-1], 2)
+            cv2.putText(frame, str(2 * 0 + 1), (arrows[i, 1, 0] + 8, arrows[i, 1, 1]), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color[::-1], 2)
         else:
             color = (255, 77, 77)
-            cv2.putText(frame, str(2 * i), (arrows[i, 0, 0], arrows[i, 0, 1] - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color[::-1], 2)
-            cv2.putText(frame, str(2 * i + 1), (arrows[i, 1, 0], arrows[i, 1, 1] - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color[::-1], 2)
+            cv2.putText(frame, str(2 * 0), (arrows[i, 0, 0], arrows[i, 0, 1] - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color[::-1], 2)
+            cv2.putText(frame, str(2 * 0 + 1), (arrows[i, 1, 0], arrows[i, 1, 1] - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color[::-1], 2)
         cv2.circle(frame, (coordinate[2 * i, 0], coordinate[2 * i, 1]), 4, color, -1)
         cv2.circle(frame, (coordinate[2 * i + 1, 0], coordinate[2 * i + 1, 1]), 4, color, -1)
         cv2.line(frame, (coordinate[2 * i, 0], coordinate[2 * i, 1]), (coordinate[2 * i + 1, 0], coordinate[2 * i + 1, 1]), color, 2)
@@ -354,8 +372,8 @@ while True:
                 lock = False
                 line = int(placeMap[0])
                 direction = int(placeMap[1])
-                to.place = 2 * line + direction
-                totalSide[to.place] += 1
+                to.place = direction
+                totalSide[line, direction] += 1
                 if zoneState[line]:
                     if direction == 0:
                         totalUp += 1

@@ -11,7 +11,7 @@ import cv2
 capture = isVideo = None
 firstFrame = None
 
-def cameraInit(cameraPipe, A):
+def cameraInit(cameraPipe):
     global capture, isVideo, firstFrame
     paraInput = cameraPipe.recv()
     cameraPipe.send("Camera Received")
@@ -24,12 +24,12 @@ def cameraInit(cameraPipe, A):
 
     _, firstFrame = capture.read()
     cameraPipe.send(firstFrame)
-    camera(cameraPipe, A)
+    camera(cameraPipe)
 
-def camera(cameraPipe, A):
+def camera(cameraPipe):
     global capture, isVideo, firstFrame
     bufferCameraPipe, bufferDetectionPipe = Pipe()
-    bufferProcess = Process(target = buffer, args = [bufferDetectionPipe, cameraPipe, A])
+    bufferProcess = Process(target = buffer, args = [bufferDetectionPipe, cameraPipe])
     bufferProcess.start()
     width = 550
     height = int(width * firstFrame.shape[0] / firstFrame.shape[1])
@@ -45,7 +45,7 @@ def camera(cameraPipe, A):
             break
 
 
-def buffer(bufferCameraPipe, cameraPipe, A):
+def buffer(bufferCameraPipe, cameraPipe):
     frameQueue = []
     while True:
         if bufferCameraPipe.poll():
