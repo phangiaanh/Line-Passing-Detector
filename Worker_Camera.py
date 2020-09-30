@@ -48,15 +48,18 @@ def camera(cameraPipe):
 def buffer(bufferCameraPipe, cameraPipe):
     frameQueue = []
     while True:
-        if bufferCameraPipe.poll():
-            frameQueue.append(bufferCameraPipe.recv())
-        else:
-            if len(frameQueue) == 0 or cameraPipe.poll():
-                continue
-            else:
-                start = time.time()
-                cameraPipe.send(frameQueue.pop(0))
+        # if bufferCameraPipe.poll():
+        #     frameQueue.append(bufferCameraPipe.recv())
+        # else:
+        #     if len(frameQueue) == 0 or cameraPipe.poll():
+        #         continue
+        #     else:
+        #         start = time.time()
+        #         cameraPipe.send(frameQueue.pop(0))
                 # A.put(frameQueue.pop())
                 # print("Sending in: ", time.time() -start)
 
+        frame = bufferCameraPipe.recv()
+        frameQueue.append(frame)
+        cameraPipe.send(frameQueue.pop(0))
         

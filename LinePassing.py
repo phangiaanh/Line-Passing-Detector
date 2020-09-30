@@ -13,6 +13,7 @@ from paho.mqtt import client as mqtt_client
 import json
 from multiprocessing import Pipe, Process
 from threading import Thread
+# from test import a,b
 
 
 import numpy as np
@@ -204,33 +205,53 @@ fps = FPS().start()
 
 pipe1, pipe2 = Pipe()
 def a(pipe2):
-    # paraInput = pipe2.recv()
-    # if len(paraInput) > 2:
-    #     capture = cv2.VideoCapture(paraInput)
-    # else:
-    #     capture = cv2.VideoCapture(int(paraInput))
-    capture = cv2.VideoCapture("/home/ubuntu/Desktop/Video_Campus.mp4")
+    id = 0
+    paraInput = pipe2.recv()
+    if len(paraInput) > 2:
+        capture = cv2.VideoCapture(paraInput)
+    else:
+        capture = cv2.VideoCapture(int(paraInput))
+    # capture = cv2.VideoCapture(0)
+    pi, bi = Pipe()
+    B = Process(target = b, args = [bi, pipe2])
+    # B.start()   
     while True:
         _, frame = capture.read()
-        pipe2.send(frame)
+        pipe2.send([id, frame])
+        # pi.send([id, frame])
+        id += 1
 
-# capture.release()
-# A = Process(target=a, args=[pipe2])
-# A.start()
-# pipe1.send(args.input)
+
+def b(e, f):
+    frameQueue = []
+    while True:
+        frame = e.recv()
+        frameQueue.append(frame)
+        f.send(frameQueue.pop(0))
+
+capture.release()
+A = Process(target=a, args=[pipe2])
+A.start()
+pipe1.send(args.input)
+lastID = -1
+begin = time.time()
+x = 0
 while True:
     start = time.time()
     # Get frame
-    _, frame = capture.read()
-    # frame = pipe1.recv()
+    # _, frame = capture.read()
+    id, frame = pipe1.recv()
+    x += 1
     # Check video end
     if isVideo and frame is None:
         A.terminate()
         break
+    # if time.time() - begin > 20:
+    #     print(x)
+    #     exit()
 
     # Resize and Convert frame for dlib
     frame = cv2.resize(frame, (width, height))
-
     RGB = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
     # Initialize list of rectangles in each frame
@@ -311,7 +332,7 @@ while True:
     for i in range(0, len(zoneState)):
         if zoneState[i]:
             color = (77, 77, 255)
-            cv2.putText(frame, str(2 * 0), (arrows[i, 0, 0] + 8, arrows[i, 0, 1]), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color[::-1], 2)
+            cv2.putText(frame, str( 2 * 0), (arrows[i, 0, 0] + 8, arrows[i, 0, 1]), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color[::-1], 2)
             cv2.putText(frame, str(2 * 0 + 1), (arrows[i, 1, 0] + 8, arrows[i, 1, 1]), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color[::-1], 2)
         else:
             color = (255, 77, 77)

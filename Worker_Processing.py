@@ -39,12 +39,8 @@ def processingInit(processingPipe):
     totalUp = totalDown = totalLeft = totalRight = 0
     lock = False
     while True:
-        if processingPipe.poll():
-            ret, newRectList, frame = processingPipe.recv()
-        else:
-            continue
+        ret, newRectList, frame = processingPipe.recv()
         objects = centroidTracker.update(newRectList)
-
         if not ret:
             continue
 
@@ -95,12 +91,8 @@ def processingInit(processingPipe):
                         else:
                             totalRight += 1
                             to.direction = "RIGHT"
-                    # print(totalUp, totalDown, totalLeft, totalRight)
+                    print(totalUp, totalDown, totalLeft, totalRight)
 
 
-            cv2.imshow("frame", frame)
-            if cv2.waitKey(1) == ord('q'):
-                cv2.destroyAllWindows()
-                break
             trackableObjects[objectID] = to
             # print(time.time() - start)

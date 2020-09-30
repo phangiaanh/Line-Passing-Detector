@@ -163,7 +163,7 @@ def zoneInit():
 def processInit():
     global detectProcessPipe, processDetectPipe, initProcessingProcess
     detectProcessPipe, processDetectPipe = Pipe()
-    initProcessingProcess = Process(target = processingInit, args = [processDetectPipe])
+    initProcessingProcess = Thread(target = processingInit, args = [processDetectPipe])
     initProcessingProcess.start()
 
 def detectionInit():
@@ -179,7 +179,7 @@ def detectionInit():
     zoneInit()
     detectProcessPipe.send([zone, zoneState, zoneCondition, span, coordinate])
     detectProcessPipe.send("Zone Sended")
-    detection(detectProcessPipe)
+    # detection(detectProcessPipe)
 
 
 def detection(detectProcessPipe):
@@ -191,11 +191,6 @@ def detection(detectProcessPipe):
     while True:
         start = time.time()
         frame = detectCamPipe.recv()
-        # print(str(id) + "Processed")
-        # if detectCamPipe.poll():
-        #     frame = A.get()
-        # frame = A.get(block=True)
-        # Resize and Convert frame for dlib
         frame = cv2.resize(frame, (width, height))
 
         RGB = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -294,3 +289,4 @@ def detection(detectProcessPipe):
 
 if __name__ == "__main__":
     detectionInit()
+    detection(detectProcessPipe)
