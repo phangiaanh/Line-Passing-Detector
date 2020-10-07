@@ -40,6 +40,7 @@ def camera(cameraPipe):
         # if np.sum(abs(frame - lastFrame), axis = None) > 10000:
         bufferCameraPipe.send(frame)
         lastFrame = frame
+
         if isVideo and frame is None:
             cameraPipe.send("Camera Terminated")
             break
@@ -48,17 +49,6 @@ def camera(cameraPipe):
 def buffer(bufferCameraPipe, cameraPipe):
     frameQueue = []
     while True:
-        # if bufferCameraPipe.poll():
-        #     frameQueue.append(bufferCameraPipe.recv())
-        # else:
-        #     if len(frameQueue) == 0 or cameraPipe.poll():
-        #         continue
-        #     else:
-        #         start = time.time()
-        #         cameraPipe.send(frameQueue.pop(0))
-                # A.put(frameQueue.pop())
-                # print("Sending in: ", time.time() -start)
-
         frame = bufferCameraPipe.recv()
         frameQueue.append(frame)
         cameraPipe.send(frameQueue.pop(0))

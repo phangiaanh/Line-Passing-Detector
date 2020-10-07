@@ -5,7 +5,9 @@ class TrackableObject:
         self.landmarks = [landmark]
 
         self.direction = None
-        self.up = False
         self.place = None
 
         self.state = np.zeros((lineNum, 2), dtype = bool)
+
+    def getRectList(self):
+        return [self.landmarks[-1], self.direction]

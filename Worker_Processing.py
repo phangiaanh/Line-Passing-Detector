@@ -2,17 +2,9 @@
 from Object import TrackableObject
 from Tracker import Tracker
 
-# # # [Library for MQTT]
-from PIL import Image
-from io import BytesIO
-from base64 import b64encode
-from paho.mqtt import client as mqtt_client
-import json
-
 # # # [Library for workers]
 from multiprocessing import Process, Pipe, Queue
-
-
+from Worker_MQTT import mqttInit
 
 # # # [Library for supporting computations]
 import numpy as np
@@ -25,7 +17,8 @@ import copy
 import math
 
 
-def processingInit(processingPipe):
+def processingInit(processingPipe, visualPipe):
+    # Receive information
     frame = processingPipe.recv()
     if not processingPipe.recv() == "Frame Sended":
         print("Error in Pipe multiprocessing")
@@ -34,29 +27,39 @@ def processingInit(processingPipe):
     if not processingPipe.recv() == "Zone Sended":
         print("Error in Pipe multiprocessing")
 
+
+    # Tracker objects
     centroidTracker = Tracker(maxDisappeared = 20, maxDistance = 40)
     trackableObjects = {}
     totalUp = totalDown = totalLeft = totalRight = 0
     lock = False
+    
+
+    # MQTT Process
+    processMQTTPipe, mqttProcessPipe = Pipe()
+    mqttInitProcess = Process(target = mqttInit, args = [mqttProcessPipe])
+    mqttInitProcess.start()
+    
     while True:
         ret, newRectList, frame = processingPipe.recv()
+        start = time.time()
         objects = centroidTracker.update(newRectList)
         if not ret:
             continue
-
+        
         for (objectID, centroid) in objects.items():
             to = trackableObjects.get(objectID, None)
 
             if to is None:
                 to = TrackableObject(objectID, centroid, len(zoneState))
                 formatCentroid = np.append(centroid[0:4], [1])
-                newState = np.logical_and.reduce(np.dot(zoneCondition, formatCentroid) > 0, axis = -1)
+                newState = np.logical_and.reduce(   np.dot(zoneCondition, formatCentroid) > 0, axis = -1)
                 to.state = newState
 
             else:
                 firstPos = to.landmarks[0]
+                to.landmarks.append(centroid)
                 formatCentroid = np.append(centroid[0:4], [1])
-                # start = time.time()
                 newState = np.logical_and.reduce(np.dot(zoneCondition, formatCentroid) > 0, axis = -1)
 
                 for i in range(0, len(zoneState)):
@@ -92,7 +95,13 @@ def processingInit(processingPipe):
                             totalRight += 1
                             to.direction = "RIGHT"
                     print(totalUp, totalDown, totalLeft, totalRight)
-
-
+                    processMQTTPipe.send([frame, line, direction])
             trackableObjects[objectID] = to
-            # print(time.time() - start)
+
+        
+        newKeys = list(objects.keys())
+        newTrackableObjects = dict([(key, trackableObjects[key]) for key in newKeys])
+        trackableObjects = newTrackableObjects
+        objectList = [value.getRectList() for key, value in trackableObjects.items()]
+        visualPipe.send(objectList)
+            

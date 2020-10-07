@@ -114,6 +114,5 @@ class Tracker:
                 for col in unusedCols:
                     self.register(inputLandmarks[col])
 
-
         return self.currentObjects
 
