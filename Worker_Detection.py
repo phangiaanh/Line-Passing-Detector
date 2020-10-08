@@ -2,7 +2,6 @@
 from multiprocessing import Process, Pipe, Queue
 from Worker_Camera import cameraInit
 from Worker_Processing import processingInit
-from Worker_Visualize import visualizeInit
 
 # # # [Library for computer vision]
 import numpy as np
@@ -73,10 +72,6 @@ zoneCondition = []
 detectCamPipe = camDetectPipe = initCameraProcess = None
 ## Pipe between Detection - Processing
 detectProcessPipe = processDetectPipe = initProcessingProcess = None
-## Pipe between Detection - Visualization
-detectVisualPipe = visualDetectPipe = initVisualizeProcess = None
-## Pipe between Processing - Visualization
-processVisualPipe = visualProcessPipe = None
 
 
 def netInit():
@@ -180,17 +175,11 @@ def zoneInit():
 
 def processInit():
     global detectProcessPipe, processDetectPipe, initProcessingProcess
-    global detectVisualPipe, visualDetectPipe, initVisualizeProcess
-    global processVisualPipe, visualProcessPipe
     detectProcessPipe, processDetectPipe = Pipe()
-    detectVisualPipe, visualDetectPipe = Pipe()
-    processVisualPipe, visualProcessPipe = Pipe()
-    initProcessingProcess = Process(target = processingInit, args = [processDetectPipe, processVisualPipe])
+    initProcessingProcess = Process(target = processingInit, args = [processDetectPipe])
     initProcessingProcess.start()
 
-    initVisualizeProcess = Process(target = visualizeInit, args = [visualDetectPipe, visualProcessPipe])
-    initVisualizeProcess.start()
-
+    
 def detectionInit():
     global paraConfig, paraModel, paraNet, paraInput, paraThreshold, paraSkipRate, paraNumLine
     [paraConfig, paraModel, paraNet, paraInput, paraThreshold, paraSkipRate, paraNumLine] = [args.config, args.model, args.net, args.input, args.thr, args.skip, args.line]
@@ -210,13 +199,14 @@ def detectionInit():
 def detection(detectProcessPipe):
     global isCaffe, paraSkipRate, width, height, paraThreshold, personID
     global width, height, coordinate, zone, alpha, span, zoneState
+    directionTable = {0: "Out", 1: "In"}
     fps = FPS().start()
     totalFrames = 0
     skip = paraSkipRate
     while True:
-        frame = detectCamPipe.recv()
-        frame = cv2.resize(frame, (width, height))
-
+        processingFrame = detectCamPipe.recv()
+        start = time.time()
+        frame = processingFrame.image
         RGB = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
         # Initialize list of rectangles in each frame
@@ -299,21 +289,23 @@ def detection(detectProcessPipe):
             cv2.arrowedLine(frame, (*arrows[i, 0], ), (*arrows[i, 1], ), color, 2, tipLength = 0.2)
             cv2.arrowedLine(frame, (*arrows[i, 1], ), (*arrows[i, 0], ), color, 2, tipLength = 0.2)
             if zoneState[i]:
-                cv2.putText(frame, str( 2 * 0), (arrows[i, 0, 0] + 8, arrows[i, 0, 1]), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color[::-1], 2)
-                cv2.putText(frame, str(2 * 0 + 1), (arrows[i, 1, 0] + 8, arrows[i, 1, 1]), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color[::-1], 2)
+                cv2.putText(frame, directionTable[0], (arrows[i, 0, 0] + 8, arrows[i, 0, 1]), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color[::-1], 2)
+                cv2.putText(frame, directionTable[1], (arrows[i, 1, 0] + 8, arrows[i, 1, 1]), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color[::-1], 2)
                 cv2.putText(frame, "line: " + str(i) , (int(coordinate[2 * i, 0] / 4 + 3 * coordinate[2 * i + 1, 0] / 4), int(coordinate[2 * i, 1] / 4 + 3 * coordinate[2 * i + 1, 1] / 4)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color[::-1], 2)
             else:
-                cv2.putText(frame, str(2 * 0), (arrows[i, 0, 0], arrows[i, 0, 1] - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color[::-1], 2)
-                cv2.putText(frame, str(2 * 0 + 1), (arrows[i, 1, 0], arrows[i, 1, 1] - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color[::-1], 2)
+                cv2.putText(frame, directionTable[0], (arrows[i, 0, 0], arrows[i, 0, 1] - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color[::-1], 2)
+                cv2.putText(frame, directionTable[1], (arrows[i, 1, 0], arrows[i, 1, 1] - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color[::-1], 2)
                 cv2.putText(frame, "line: " + str(i) , (int(3 * coordinate[2 * i, 0] / 4 + coordinate[2 * i + 1, 0] / 4), int(3 * coordinate[2 * i, 1] / 4 + coordinate[2 * i + 1, 1] / 4)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color[::-1], 2)
             
 
-        detectVisualPipe.send(frame)
-        if len(rectList) > 0:
-            detectProcessPipe.send([True, rectList, frame])
-        else:
-            detectProcessPipe.send([False, rectList, frame])
+        processingFrame.isSomeone = len(rectList) > 0
+        processingFrame.box = rectList
+        processingFrame.processingTime["Detection"] = time.time() - start
+        detectProcessPipe.send(processingFrame)
         fps.update()
+        if detectProcessPipe.poll():
+            initCameraProcess.terminate()
+            break
         
     fps.stop()
     print("FPS: {:.2f}".format(fps.fps()))

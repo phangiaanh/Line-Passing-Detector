@@ -5,6 +5,7 @@ from Tracker import Tracker
 # # # [Library for workers]
 from multiprocessing import Process, Pipe, Queue
 from Worker_MQTT import mqttInit
+from Worker_Visualize import visualizeInit
 
 # # # [Library for supporting computations]
 import numpy as np
@@ -17,7 +18,7 @@ import copy
 import math
 
 
-def processingInit(processingPipe, visualPipe):
+def processingInit(processingPipe):
     # Receive information
     frame = processingPipe.recv()
     if not processingPipe.recv() == "Frame Sended":
@@ -35,16 +36,33 @@ def processingInit(processingPipe, visualPipe):
     lock = False
     
 
+    # Visualize Process
+    processVisualizePipe, visualizeProcessPipe = Pipe()
+    visualizeInitProcess = Process(target = visualizeInit, args = [visualizeProcessPipe])
+    visualizeInitProcess.start()
+
+
+
     # MQTT Process
     processMQTTPipe, mqttProcessPipe = Pipe()
     mqttInitProcess = Process(target = mqttInit, args = [mqttProcessPipe])
     mqttInitProcess.start()
     
     while True:
-        ret, newRectList, frame = processingPipe.recv()
+        if processVisualizePipe.poll():
+            processingPipe.send("END")
+            break
+        processingFrame = processingPipe.recv()
+        ret = processingFrame.isSomeone
+        newRectList = processingFrame.box
+        updateRect = []
+        updateColor = []
+        frame = processingFrame.image
         start = time.time()
         objects = centroidTracker.update(newRectList)
         if not ret:
+            processingFrame.total = [totalUp, totalDown, totalLeft, totalRight]
+            processVisualizePipe.send(processingFrame)
             continue
         
         for (objectID, centroid) in objects.items():
@@ -94,14 +112,26 @@ def processingInit(processingPipe, visualPipe):
                         else:
                             totalRight += 1
                             to.direction = "RIGHT"
+
                     print(totalUp, totalDown, totalLeft, totalRight)
-                    processMQTTPipe.send([frame, line, direction])
+                    processMQTTPipe.send([frame, line, direction, centroid])
+
+                updateRect.append(centroid)
+                if to.direction:
+                    updateColor.append(to.direction)
+                else:
+                    updateColor.append("NONE")    
+
             trackableObjects[objectID] = to
 
+        processingFrame.box = updateRect
+        processingFrame.color = updateColor  
+        processingFrame.processingTime["Processing"] = time.time() - start
+        processingFrame.total = [totalUp, totalDown, totalLeft, totalRight]
+        processVisualizePipe.send(processingFrame)
         
         newKeys = list(objects.keys())
-        newTrackableObjects = dict([(key, trackableObjects[key]) for key in newKeys])
-        trackableObjects = newTrackableObjects
+        trackableObjects = dict([(key, trackableObjects[key]) for key in newKeys])
         objectList = [value.getRectList() for key, value in trackableObjects.items()]
-        visualPipe.send(objectList)
-            
+
+    print("DONE")

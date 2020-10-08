@@ -1,6 +1,7 @@
 # # # [Library for workers]
 from multiprocessing import Process, Pipe, Queue
 from threading import Thread
+from Frame import ProcessingFrame
 
 # # # [Library for computer vision]
 import numpy as np
@@ -28,19 +29,20 @@ def cameraInit(cameraPipe):
 
 def camera(cameraPipe):
     global capture, isVideo, firstFrame
-    bufferCameraPipe, bufferDetectionPipe = Pipe()
-    bufferProcess = Process(target = buffer, args = [bufferDetectionPipe, cameraPipe])
-    bufferProcess.start()
+    frameID = 0
+    # bufferCameraPipe, bufferDetectionPipe = Pipe()
+    # bufferProcess = Process(target = buffer, args = [bufferDetectionPipe, cameraPipe])
+    # bufferProcess.start()
     width = 550
     height = int(width * firstFrame.shape[0] / firstFrame.shape[1])
     lastFrame = cv2.resize(firstFrame, (width, height))
     while True:
         _, frame = capture.read()
         frame = cv2.resize(frame, (width, height))
-        # if np.sum(abs(frame - lastFrame), axis = None) > 10000:
-        bufferCameraPipe.send(frame)
-        lastFrame = frame
-
+        processingFrame = ProcessingFrame(id, frame)
+        # if np.sum(abs(frame - lastFrame), axis = None) > 10000000:
+        cameraPipe.send(processingFrame)
+        # lastFrame = frame
         if isVideo and frame is None:
             cameraPipe.send("Camera Terminated")
             break

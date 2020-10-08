@@ -3,32 +3,32 @@ import cv2
 import numpy as np
 
 
-def visualizeInit(detectPipe, processPipe):
-    rectList = np.array([])
-    color = (255,255,255)
-    while True:
-        if  processPipe.poll():
-            receivedList = processPipe.recv()
-            rectList = np.array(receivedList, dtype = object)  
-        else:
-            rectList = np.array([])  
-        frame = detectPipe.recv()
+def visualizeInit(processPipe):
+    colorTable = {"UP": (0, 0, 255), "DOWN": (0, 255, 255), "LEFT": (128, 255, 128), "RIGHT": (255, 128, 128), "NONE": (0, 255, 0)}
+    while True:  
+        processingFrame = processPipe.recv()
+        
+        # Extract info from processingFrame
+        frame = processingFrame.image
+        height = frame.shape[0]
+        rectList = np.array(processingFrame.box)
+        rectColor = processingFrame.color
+        [totalUp, totalDown, totalLeft, totalRight] = processingFrame.total
 
-        if len(rectList) > 0:
-            for box in rectList:
-                if box[1]:
-                    if box[1] == "UP":
-                        color = (0, 0, 255)
-                    elif box[1] == "DOWN":
-                        color = (0, 255, 255)
-                    elif box[1] == "LEFT":
-                        color = (128, 255, 128)
-                    else:
-                        color = (255, 128, 128)
-                else:
-                    color = (0, 255, 0)
-                cv2.rectangle(frame, (box[0][0], box[0][1]), (box[0][2], box[0][3]), color, 2)
+        for i in range(0, len(rectList)):
+            cv2.rectangle(frame, (rectList[i, 0], rectList[i, 1]), (rectList[i, 2], rectList[i, 3]), colorTable[rectColor[i]], 2)
+        info = [
+		("UP", totalUp),
+		("DOWN", totalDown),
+        ("LEFT", totalLeft),    
+        ("RIGHT", totalRight)
+        ]
 
+        for (i, (k, v)) in enumerate(info):
+            text = "{}: {}".format(k, v)
+            cv2.putText(frame, text, (10, height - ((i * 20) + 20)), cv2.FONT_HERSHEY_SIMPLEX, 0.6, colorTable[k], 2)
+        
         cv2.imshow("Visualization View", frame)
         if cv2.waitKey(1) == ord('q'):
+            processPipe.send("END")
             break

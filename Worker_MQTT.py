@@ -35,8 +35,10 @@ def mqttInit(mqttPipe):
     # client.loop_start()
     
     while True:
-        [frame, line, place] = mqttPipe.recv()
+        [frame, line, place, centroid] = mqttPipe.recv()
 
+        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        cv2.rectangle(frame, (centroid[0], centroid[1]), (centroid[2], centroid[3]), (255, 255, 255), 2)
         evidence = Image.fromarray(frame, 'RGB')
         buffer = BytesIO()
         evidence.save(buffer, format = "JPEG")
@@ -45,6 +47,6 @@ def mqttInit(mqttPipe):
         start = time.time()
         now = datetime.datetime.utcnow()
         now = now.replace(tzinfo = pytz.UTC)
-        message = json.dumps({"usr": "hoanghm2","cam_id": "SV10", "line": line, "direction": place ,"time": now.isoformat(), "evidence": base64Image})
+        message = json.dumps({"usr": "hoanghm2","cam_id": "SV1", "line": line, "direction": place ,"time": now.isoformat(), "evidence": base64Image})
         result = client.publish(topic, message)
         print("Published")
