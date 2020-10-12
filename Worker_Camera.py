@@ -12,7 +12,7 @@ import cv2
 capture = isVideo = None
 firstFrame = None
 
-def cameraInit(cameraPipe):
+def cameraInit(cameraPipe, endQueue):
     global capture, isVideo, firstFrame
     paraInput = cameraPipe.recv()
     cameraPipe.send("Camera Received")
@@ -25,33 +25,30 @@ def cameraInit(cameraPipe):
 
     _, firstFrame = capture.read()
     cameraPipe.send(firstFrame)
-    camera(cameraPipe)
+    camera(cameraPipe, endQueue)
 
-def camera(cameraPipe):
+def camera(cameraPipe, endQueue):
     global capture, isVideo, firstFrame
     frameID = 0
-    # bufferCameraPipe, bufferDetectionPipe = Pipe()
-    # bufferProcess = Process(target = buffer, args = [bufferDetectionPipe, cameraPipe])
-    # bufferProcess.start()
     width = 550
     height = int(width * firstFrame.shape[0] / firstFrame.shape[1])
     lastFrame = cv2.resize(firstFrame, (width, height))
     while True:
         _, frame = capture.read()
-        frame = cv2.resize(frame, (width, height))
-        processingFrame = ProcessingFrame(id, frame)
-        # if np.sum(abs(frame - lastFrame), axis = None) > 10000000:
-        cameraPipe.send(processingFrame)
-        # lastFrame = frame
         if isVideo and frame is None:
-            cameraPipe.send("Camera Terminated")
+            endQueue.put("END")
+            frame = lastFrame
+            
+
+        frame = cv2.resize(frame, (width, height))
+        processingFrame = ProcessingFrame(frameID, frame)
+        frameID += 1
+        if frameID > 1000000:
+            frameID = 0
+        cameraPipe.send(processingFrame)
+        lastFrame = frame
+        if not endQueue.empty():
+            capture.release()
             break
 
-
-def buffer(bufferCameraPipe, cameraPipe):
-    frameQueue = []
-    while True:
-        frame = bufferCameraPipe.recv()
-        frameQueue.append(frame)
-        cameraPipe.send(frameQueue.pop(0))
-        
+    print("CAMERA DONE")

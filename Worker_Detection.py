@@ -72,7 +72,7 @@ zoneCondition = []
 detectCamPipe = camDetectPipe = initCameraProcess = None
 ## Pipe between Detection - Processing
 detectProcessPipe = processDetectPipe = initProcessingProcess = None
-
+endQueue = None
 
 def netInit():
     global net, personID, isCaffe
@@ -87,9 +87,10 @@ def netInit():
         isCaffe = False
 
 def frameInit():
+    global endQueue
     global detectCamPipe, camDetectPipe, initCameraProcess
     detectCamPipe, camDetectPipe = Pipe()
-    initCameraProcess = Process(target = cameraInit, args = [camDetectPipe])
+    initCameraProcess = Process(target = cameraInit, args = [camDetectPipe, endQueue], daemon = True)
     initCameraProcess.start()
 
     detectCamPipe.send(paraInput)
@@ -161,7 +162,7 @@ def zoneInit():
             zoneState.append(False)
             partCondition = np.array([[[-zone[i, 2, 0], -zone[i, 2, 1], 0, 0, -zone[i, 1, 2] - span[i]], [-zone[i, 2, 0], 0, 0, -zone[i, 2, 1], -zone[i, 1, 2] - span[i]]], [[0, zone[i, 3, 1], zone[i, 3, 0], 0, zone[i, 3, 2] + span[i]], [0, 0, zone[i, 3, 0], zone[i, 3, 1], zone[i, 3, 2] + span[i]]]])
             zoneCondition.append(partCondition)
-    print(zone)
+    
     zoneCondition = np.array(zoneCondition)
 
     for i in range(0, len(zoneState)):
@@ -175,16 +176,19 @@ def zoneInit():
 
 
 def processInit():
+    global endQueue
     global detectProcessPipe, processDetectPipe, initProcessingProcess
     detectProcessPipe, processDetectPipe = Pipe()
-    initProcessingProcess = Process(target = processingInit, args = [processDetectPipe])
+    initProcessingProcess = Process(target = processingInit, args = [processDetectPipe, endQueue])
     initProcessingProcess.start()
 
     
 def detectionInit():
+    global endQueue
     global paraConfig, paraModel, paraNet, paraInput, paraThreshold, paraSkipRate, paraNumLine
     [paraConfig, paraModel, paraNet, paraInput, paraThreshold, paraSkipRate, paraNumLine] = [args.config, args.model, args.net, args.input, args.thr, args.skip, args.line]
     
+    endQueue = Queue()
     processInit()
     netInit()
     frameInit()
@@ -194,10 +198,10 @@ def detectionInit():
     zoneInit()
     detectProcessPipe.send([zone, zoneState, zoneCondition, span, coordinate])
     detectProcessPipe.send("Zone Sended")
-    # detection(detectProcessPipe)
 
 
 def detection(detectProcessPipe):
+    global endQueue
     global isCaffe, paraSkipRate, width, height, paraThreshold, personID
     global width, height, coordinate, zone, alpha, span, zoneState
     directionTable = {0: "Out", 1: "In"}
@@ -206,6 +210,9 @@ def detection(detectProcessPipe):
     skip = paraSkipRate
     while True:
         processingFrame = detectCamPipe.recv()
+        if not endQueue.empty():
+            detectProcessPipe.send(None)
+            break
         start = time.time()
         frame = processingFrame.image
         RGB = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -289,12 +296,12 @@ def detection(detectProcessPipe):
             cv2.line(frame, (coordinate[2 * i, 0], coordinate[2 * i, 1]), (coordinate[2 * i + 1, 0], coordinate[2 * i + 1, 1]), color, 2)
             cv2.arrowedLine(frame, (*arrows[i, 0], ), (*arrows[i, 1], ), color, 2, tipLength = 0.2)
             cv2.arrowedLine(frame, (*arrows[i, 1], ), (*arrows[i, 0], ), color, 2, tipLength = 0.2)
-            if zoneState[i]:
-                cv2.line(frame, (coordinate[2 * i, 0], coordinate[2 * i, 1] + int(span[i])), (coordinate[2 * i + 1, 0], coordinate[2 * i + 1, 1] + int(span[i])), (255, 255, 255), 2)
-                cv2.line(frame, (coordinate[2 * i, 0], coordinate[2 * i, 1] - int(span[i])), (coordinate[2 * i + 1, 0], coordinate[2 * i + 1, 1] - int(span[i])), (255, 255, 255), 2)
-            else:
-                cv2.line(frame, (coordinate[2 * i, 0] + int(span[i]), coordinate[2 * i, 1]), (coordinate[2 * i + 1, 0] + int(span[i]), coordinate[2 * i + 1, 1]), (255, 255, 255), 2)
-                cv2.line(frame, (coordinate[2 * i, 0] - int(span[i]), coordinate[2 * i, 1]), (coordinate[2 * i + 1, 0] - int(span[i]), coordinate[2 * i + 1, 1]), (255, 255, 255), 2)
+            # if zoneState[i]:
+            #     cv2.line(frame, (coordinate[2 * i, 0], coordinate[2 * i, 1] + int(span[i])), (coordinate[2 * i + 1, 0], coordinate[2 * i + 1, 1] + int(span[i])), (255, 255, 255), 2)
+            #     cv2.line(frame, (coordinate[2 * i, 0], coordinate[2 * i, 1] - int(span[i])), (coordinate[2 * i + 1, 0], coordinate[2 * i + 1, 1] - int(span[i])), (255, 255, 255), 2)
+            # else:
+            #     cv2.line(frame, (coordinate[2 * i, 0] + int(span[i]), coordinate[2 * i, 1]), (coordinate[2 * i + 1, 0] + int(span[i]), coordinate[2 * i + 1, 1]), (255, 255, 255), 2)
+            #     cv2.line(frame, (coordinate[2 * i, 0] - int(span[i]), coordinate[2 * i, 1]), (coordinate[2 * i + 1, 0] - int(span[i]), coordinate[2 * i + 1, 1]), (255, 255, 255), 2)
 
             if zoneState[i]:
                 cv2.putText(frame, directionTable[0], (arrows[i, 0, 0] + 8, arrows[i, 0, 1]), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color[::-1], 2)
@@ -311,9 +318,6 @@ def detection(detectProcessPipe):
         processingFrame.processingTime["Detection"] = time.time() - start
         detectProcessPipe.send(processingFrame)
         fps.update()
-        if detectProcessPipe.poll():
-            initCameraProcess.terminate()
-            break
         
     fps.stop()
     print("FPS: {:.2f}".format(fps.fps()))
@@ -322,3 +326,4 @@ def detection(detectProcessPipe):
 if __name__ == "__main__":
     detectionInit()
     detection(detectProcessPipe)
+    print("DETECTION DONE")

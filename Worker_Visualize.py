@@ -3,7 +3,7 @@ import cv2
 import numpy as np
 
 
-def visualizeInit(processPipe):
+def visualizeInit(processPipe, endQueue):
     colorTable = {"UP": (0, 0, 255), "DOWN": (0, 255, 255), "LEFT": (128, 255, 128), "RIGHT": (255, 128, 128), "NONE": (0, 255, 0)}
     while True:  
         processingFrame = processPipe.recv()
@@ -29,6 +29,9 @@ def visualizeInit(processPipe):
             cv2.putText(frame, text, (10, height - ((i * 20) + 20)), cv2.FONT_HERSHEY_SIMPLEX, 0.6, colorTable[k], 2)
         
         cv2.imshow("Visualization View", frame)
-        if cv2.waitKey(1) == ord('q'):
-            processPipe.send("END")
+        if cv2.waitKey(1) == ord('q') or not endQueue.empty():
+            endQueue.put("END")
             break
+
+        
+    print("VISUALIZE DONE")

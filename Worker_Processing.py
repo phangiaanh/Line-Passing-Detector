@@ -18,7 +18,7 @@ import copy
 import math
 
 
-def processingInit(processingPipe):
+def processingInit(processingPipe, endQueue):
     # Receive information
     frame = processingPipe.recv()
     if not processingPipe.recv() == "Frame Sended":
@@ -38,21 +38,22 @@ def processingInit(processingPipe):
 
     # Visualize Process
     processVisualizePipe, visualizeProcessPipe = Pipe()
-    visualizeInitProcess = Process(target = visualizeInit, args = [visualizeProcessPipe])
+    visualizeInitProcess = Process(target = visualizeInit, args = [visualizeProcessPipe, endQueue])
     visualizeInitProcess.start()
 
 
 
     # MQTT Process
     processMQTTPipe, mqttProcessPipe = Pipe()
-    mqttInitProcess = Process(target = mqttInit, args = [mqttProcessPipe])
+    mqttInitProcess = Process(target = mqttInit, args = [mqttProcessPipe, endQueue])
     mqttInitProcess.start()
     
     while True:
-        if processVisualizePipe.poll():
-            processingPipe.send("END")
-            break
         processingFrame = processingPipe.recv()
+        if not endQueue.empty():
+            processMQTTPipe.send(None)
+            break
+
         ret = processingFrame.isSomeone
         newRectList = processingFrame.box
         updateRect = []
@@ -76,7 +77,6 @@ def processingInit(processingPipe):
                 if np.logical_and.reduce(stateFlag):
                     pass
                 else:
-                    print(centroid)
                     stateFlag = np.logical_not(stateFlag)
                     errorIndex = np.where(stateFlag)[0]
                     for i in errorIndex:
@@ -89,9 +89,8 @@ def processingInit(processingPipe):
                             newState[i] = [True, False]
                         else:
                             newState[i] = [False, True]
-                        print(span[i])
+                        
                 to.state = newState
-                print(newState)
                 
             else:
                 firstPos = to.landmarks[0]
@@ -152,4 +151,5 @@ def processingInit(processingPipe):
         trackableObjects = dict([(key, trackableObjects[key]) for key in newKeys])
         objectList = [value.getRectList() for key, value in trackableObjects.items()]
 
-    print("DONE")
+
+    print("PROCESSING DONE")

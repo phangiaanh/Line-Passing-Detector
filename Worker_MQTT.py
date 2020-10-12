@@ -22,7 +22,7 @@ def connect_mqtt(broker, port, client_id):
     client.connect(broker, port)
     return client
 
-def mqttInit(mqttPipe):
+def mqttInit(mqttPipe, endQueue):
     
     # Set parameters for mqtt client
     broker = 'broker.emqx.io'
@@ -35,7 +35,10 @@ def mqttInit(mqttPipe):
     # client.loop_start()
     
     while True:
-        [frame, line, place, centroid] = mqttPipe.recv()
+        collection = mqttPipe.recv()
+        if collection is None:
+            break
+        [frame, line, place, centroid] = collection
 
         frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         cv2.rectangle(frame, (centroid[0], centroid[1]), (centroid[2], centroid[3]), (255, 255, 255), 2)
@@ -49,3 +52,6 @@ def mqttInit(mqttPipe):
         now = now.replace(tzinfo = pytz.UTC)
         message = json.dumps({"usr": "hoanghm2","cam_id": "SV1", "line": line, "direction": place ,"time": now.isoformat(), "evidence": base64Image})
         result = client.publish(topic, message)
+
+
+    print("MQTT DONE")
