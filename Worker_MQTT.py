@@ -49,4 +49,3 @@ def mqttInit(mqttPipe):
         now = now.replace(tzinfo = pytz.UTC)
         message = json.dumps({"usr": "hoanghm2","cam_id": "SV1", "line": line, "direction": place ,"time": now.isoformat(), "evidence": base64Image})
         result = client.publish(topic, message)
-        print("Published")

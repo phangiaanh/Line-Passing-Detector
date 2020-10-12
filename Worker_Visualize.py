@@ -14,7 +14,7 @@ def visualizeInit(processPipe):
         rectList = np.array(processingFrame.box)
         rectColor = processingFrame.color
         [totalUp, totalDown, totalLeft, totalRight] = processingFrame.total
-
+        # print(processingFrame.processingTime)
         for i in range(0, len(rectList)):
             cv2.rectangle(frame, (rectList[i, 0], rectList[i, 1]), (rectList[i, 2], rectList[i, 3]), colorTable[rectColor[i]], 2)
         info = [

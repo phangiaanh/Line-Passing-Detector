@@ -71,9 +71,28 @@ def processingInit(processingPipe):
             if to is None:
                 to = TrackableObject(objectID, centroid, len(zoneState))
                 formatCentroid = np.append(centroid[0:4], [1])
-                newState = np.logical_and.reduce(   np.dot(zoneCondition, formatCentroid) > 0, axis = -1)
+                newState = np.logical_and.reduce(np.dot(zoneCondition, formatCentroid) > 0, axis = -1)
+                stateFlag = np.logical_xor.reduce(newState, axis = 1)
+                if np.logical_and.reduce(stateFlag):
+                    pass
+                else:
+                    print(centroid)
+                    stateFlag = np.logical_not(stateFlag)
+                    errorIndex = np.where(stateFlag)[0]
+                    for i in errorIndex:
+                        if zoneState[i]:
+                            zoneIndex = 0
+                        else:
+                            zoneIndex = 2
+                        changeCondition = zone[i, zoneIndex, 0] * centroid[4] + zone[i, zoneIndex, 1] * centroid[5] + zone[i, zoneIndex, 2] - span[i] < 0
+                        if changeCondition:
+                            newState[i] = [True, False]
+                        else:
+                            newState[i] = [False, True]
+                        print(span[i])
                 to.state = newState
-
+                print(newState)
+                
             else:
                 firstPos = to.landmarks[0]
                 to.landmarks.append(centroid)
@@ -113,7 +132,6 @@ def processingInit(processingPipe):
                             totalRight += 1
                             to.direction = "RIGHT"
 
-                    print(totalUp, totalDown, totalLeft, totalRight)
                     processMQTTPipe.send([frame, line, direction, centroid])
 
                 updateRect.append(centroid)

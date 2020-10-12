@@ -134,9 +134,10 @@ def zoneInit():
     global alpha, span, coordinate
     global width, height
 
-    zone = np.zeros((paraNumLine, 4, 3), dtype = float)
-    alpha = np.zeros((paraNumLine, 1), dtype = float).flatten()
-    span = np.zeros((paraNumLine, 1), dtype = float).flatten()
+    size = int(len(coordinate) / 2)
+    zone = np.zeros((size, 4, 3), dtype = float)
+    alpha = np.zeros((size, 1), dtype = float).flatten()
+    span = np.zeros((size, 1), dtype = float).flatten()
 
     for i in range(0, int(len(coordinate) / 2)):
         alpha[i] = (coordinate[2 * i, 1] - coordinate[2 * i + 1, 1]) / (coordinate[2 * i, 0] - coordinate[2 * i + 1, 0])
@@ -160,7 +161,7 @@ def zoneInit():
             zoneState.append(False)
             partCondition = np.array([[[-zone[i, 2, 0], -zone[i, 2, 1], 0, 0, -zone[i, 1, 2] - span[i]], [-zone[i, 2, 0], 0, 0, -zone[i, 2, 1], -zone[i, 1, 2] - span[i]]], [[0, zone[i, 3, 1], zone[i, 3, 0], 0, zone[i, 3, 2] + span[i]], [0, 0, zone[i, 3, 0], zone[i, 3, 1], zone[i, 3, 2] + span[i]]]])
             zoneCondition.append(partCondition)
-
+    print(zone)
     zoneCondition = np.array(zoneCondition)
 
     for i in range(0, len(zoneState)):
@@ -289,6 +290,13 @@ def detection(detectProcessPipe):
             cv2.arrowedLine(frame, (*arrows[i, 0], ), (*arrows[i, 1], ), color, 2, tipLength = 0.2)
             cv2.arrowedLine(frame, (*arrows[i, 1], ), (*arrows[i, 0], ), color, 2, tipLength = 0.2)
             if zoneState[i]:
+                cv2.line(frame, (coordinate[2 * i, 0], coordinate[2 * i, 1] + int(span[i])), (coordinate[2 * i + 1, 0], coordinate[2 * i + 1, 1] + int(span[i])), (255, 255, 255), 2)
+                cv2.line(frame, (coordinate[2 * i, 0], coordinate[2 * i, 1] - int(span[i])), (coordinate[2 * i + 1, 0], coordinate[2 * i + 1, 1] - int(span[i])), (255, 255, 255), 2)
+            else:
+                cv2.line(frame, (coordinate[2 * i, 0] + int(span[i]), coordinate[2 * i, 1]), (coordinate[2 * i + 1, 0] + int(span[i]), coordinate[2 * i + 1, 1]), (255, 255, 255), 2)
+                cv2.line(frame, (coordinate[2 * i, 0] - int(span[i]), coordinate[2 * i, 1]), (coordinate[2 * i + 1, 0] - int(span[i]), coordinate[2 * i + 1, 1]), (255, 255, 255), 2)
+
+            if zoneState[i]:
                 cv2.putText(frame, directionTable[0], (arrows[i, 0, 0] + 8, arrows[i, 0, 1]), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color[::-1], 2)
                 cv2.putText(frame, directionTable[1], (arrows[i, 1, 0] + 8, arrows[i, 1, 1]), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color[::-1], 2)
                 cv2.putText(frame, "line: " + str(i) , (int(coordinate[2 * i, 0] / 4 + 3 * coordinate[2 * i + 1, 0] / 4), int(coordinate[2 * i, 1] / 4 + 3 * coordinate[2 * i + 1, 1] / 4)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color[::-1], 2)
@@ -296,7 +304,7 @@ def detection(detectProcessPipe):
                 cv2.putText(frame, directionTable[0], (arrows[i, 0, 0], arrows[i, 0, 1] - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color[::-1], 2)
                 cv2.putText(frame, directionTable[1], (arrows[i, 1, 0], arrows[i, 1, 1] - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color[::-1], 2)
                 cv2.putText(frame, "line: " + str(i) , (int(3 * coordinate[2 * i, 0] / 4 + coordinate[2 * i + 1, 0] / 4), int(3 * coordinate[2 * i, 1] / 4 + coordinate[2 * i + 1, 1] / 4)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color[::-1], 2)
-            
+
 
         processingFrame.isSomeone = len(rectList) > 0
         processingFrame.box = rectList
